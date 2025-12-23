@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Okta Authentication Analytics - Authenticated Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Aeonik', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #ffffff;
+            min-height: 100vh;
+            color: #1d1d1f;
+        }
+
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 20px 0;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 40px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logo {
+            height: 32px;
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1d1d1f;
+            letter-spacing: -0.5px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 60px 40px;
+        }
+
+        h1 {
+            color: #1d1d1f;
+            text-align: center;
+            margin-bottom: 16px;
+            font-size: 56px;
+            font-weight: 600;
+            letter-spacing: -1.5px;
+            line-height: 1.1;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #6e6e73;
+            font-size: 21px;
+            margin-bottom: 48px;
+            font-weight: 400;
+            line-height: 1.4;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 48px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: #007dc1;
+            color: #ffffff;
+            border: none;
+            padding: 14px 32px;
+            font-size: 17px;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0062a3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 125, 193, 0.3);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .secondary-btn {
+            background: #ffffff;
+            color: #007dc1;
+            border: 2px solid #007dc1;
+        }
+
+        .secondary-btn:hover:not(:disabled) {
+            background: #f5f5f7;
+            border-color: #0062a3;
+            color: #0062a3;
+        }
+
+        .cache-info {
+            text-align: center;
+            color: #1d1d1f;
+            margin-bottom: 32px;
+            padding: 16px 24px;
+            background: #f5f5f7;
+            border-radius: 12px;
+            border: 1px solid #e5e5e5;
+            font-size: 15px;
+        }
+
+        .cache-info a {
+            color: #007dc1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .cache-info a:hover {
+            text-decoration: underline;
+        }
+
+        .progress-container {
+            display: none;
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 48px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e5e5;
+        }
+
+        .progress-container h2 {
+            color: #1d1d1f;
+            margin-bottom: 24px;
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e5e5;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 24px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #007dc1;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 24px;
+        }
+
+        .progress-stat {
+            text-align: center;
+            padding: 20px;
+            background: #f5f5f7;
+            border-radius: 12px;
+        }
+
+        .progress-stat-label {
+            font-size: 13px;
+            color: #6e6e73;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .progress-stat-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: #007dc1;
+        }
+
+        .progress-container p {
+            text-align: center;
+            margin-top: 24px;
+            color: #6e6e73;
+            font-size: 15px;
+        }
+
+        .metrics-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+
+        .metric-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e5e5;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+
+        .metric-card:hover {
+            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+            transform: translateY(-2px);
+        }
+
+        .metric-card h3 {
+            color: #6e6e73;
+            font-size: 15px;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        .metric-card .value {
+            font-size: 56px;
+            font-weight: 600;
+            color: #1d1d1f;
+            letter-spacing: -1px;
+        }
+
+        .metric-card .unit {
+            font-size: 15px;
+            color: #6e6e73;
+            margin-top: 8px;
+            font-weight: 400;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+        }
+
+        .chart-wrapper {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e5e5;
+        }
+
+        .chart-wrapper h2 {
+            color: #1d1d1f;
+            margin-bottom: 24px;
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+
+        .chart-canvas {
+            max-height: 400px;
+        }
+
+        .info {
+            text-align: center;
+            color: #6e6e73;
+            margin-top: 48px;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .info p {
+            margin: 8px 0;
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                padding: 0 20px;
+            }
+
+            .container {
+                padding: 40px 20px;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+
+            .subtitle {
+                font-size: 17px;
+            }
+
+            .metrics-summary {
+                grid-template-columns: 1fr;
+            }
+
+            .metric-card .value {
+                font-size: 42px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <img src="https://www.okta.com/sites/default/files/Okta_Logo_BrightBlue_Medium.png" alt="Okta" class="logo">
+            <span class="header-title">Authentication Analytics</span>
+            <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
+                <div id="userInfo" style="display: flex; align-items: center; gap: 12px;">
+                    <div style="text-align: right;">
+                        <div id="userName" style="font-weight: 600; color: #1d1d1f; font-size: 15px;">Loading...</div>
+                        <div id="userEmail" style="font-size: 13px; color: #6e6e73;"></div>
+                    </div>
+                    <button onclick="logout()" class="secondary-btn" style="padding: 8px 20px; font-size: 14px;">Logout</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h1>Monitor Your Identity Health</h1>
+        <p class="subtitle">Real-time insights into authentication patterns, security metrics, and user behavior across your Okta tenant</p>
+        
+        <div id="cacheInfo" class="cache-info" style="display: none;"></div>
+
+        <div class="controls">
+            <button id="loadCacheBtn" onclick="loadCachedData()">Load Cached Data</button>
+            <button id="fetchBtn" onclick="fetchMetrics()">Refresh Data</button>
+            <button id="clearCacheBtn" class="secondary-btn" onclick="clearCache()">Clear Cache</button>
+        </div>
+
+        <div id="progressContainer" class="progress-container">
+            <h2>Processing Authentication Logs</h2>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div class="progress-stats">
+                <div class="progress-stat">
+                    <div class="progress-stat-label">Logs Processed</div>
+                    <div class="progress-stat-value" id="logsProcessedCount">0</div>
+                </div>
+                <div class="progress-stat">
+                    <div class="progress-stat-label">Pages Fetched</div>
+                    <div class="progress-stat-value" id="pagesCount">0</div>
+                </div>
+                <div class="progress-stat">
+                    <div class="progress-stat-label">Elapsed Time</div>
+                    <div class="progress-stat-value" id="elapsedTime">0s</div>
+                </div>
+            </div>
+            <p>This may take several minutes for large datasets. The page will update automatically when complete.</p>
+        </div>
+
+        <div id="metricsContainer" style="display: none;">
+            <div class="metrics-summary">
+                <div class="metric-card">
+                    <h3>Unique Users</h3>
+                    <div class="value" id="uniqueUsers">-</div>
+                    <div class="unit">authenticated in 31 days</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Successful Logins</h3>
+                    <div class="value" id="successfulLogins">-</div>
+                    <div class="unit">total sessions</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Failed Passwords</h3>
+                    <div class="value" id="failedPasswords">-</div>
+                    <div class="unit">invalid credentials</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Failed MFA</h3>
+                    <div class="value" id="failedMFA">-</div>
+                    <div class="unit">second factor failures</div>
+                </div>
+                <div class="metric-card">
+                    <h3>MFA Abandonments</h3>
+                    <div class="value" id="mfaAbandonments">-</div>
+                    <div class="unit">users abandoned</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Inactive Users</h3>
+                    <div class="value" id="inactiveUsers">-</div>
+                    <div class="unit">inactive 90+ days</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Auth Time</h3>
+                    <div class="value" id="avgAuthTime">-</div>
+                    <div class="unit">avg seconds</div>
+                </div>
+            </div>
+
+            <h2 style="color: #1d1d1f; font-size: 32px; font-weight: 600; margin: 48px 0 24px 0; letter-spacing: -0.5px;">🔐 FastPass Metrics</h2>
+            
+            <div class="metrics-summary">
+                <div class="metric-card">
+                    <h3>FastPass Enrollments</h3>
+                    <div class="value" id="fastPassEnrollments">-</div>
+                    <div class="unit">total enrollments (31 days)</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Users Using FastPass</h3>
+                    <div class="value" id="fastPassAuthUsers">-</div>
+                    <div class="unit">unique users</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Devices Using FastPass</h3>
+                    <div class="value" id="fastPassDevices">-</div>
+                    <div class="unit">unique devices</div>
+                </div>
+                <div class="metric-card">
+                    <h3>FastPass Authentications</h3>
+                    <div class="value" id="fastPassAuths">-</div>
+                    <div class="unit">total authentications</div>
+                </div>
+            </div>
+
+            <h2 style="color: #1d1d1f; font-size: 32px; font-weight: 600; margin: 48px 0 24px 0; letter-spacing: -0.5px;">🔬 Biometric Usage Breakdown</h2>
+            
+            <div class="metrics-summary">
+                <div class="metric-card">
+                    <h3>Biometric Authentication</h3>
+                    <div class="value" id="biometricUsers">-</div>
+                    <div class="unit">users with biometric verification</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Biometric Adoption Rate</h3>
+                    <div class="value" id="biometricRate">-</div>
+                    <div class="unit">% of FastPass users</div>
+                </div>
+            </div>
+
+            <h2 style="color: #1d1d1f; font-size: 32px; font-weight: 600; margin: 48px 0 24px 0; letter-spacing: -0.5px;">📧 Email Delivery Metrics</h2>
+            
+            <div class="metrics-summary">
+                <div class="metric-card">
+                    <h3>Emails Delivered</h3>
+                    <div class="value" id="emailSuccess">-</div>
+                    <div class="unit">successful deliveries</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Emails Not Delivered</h3>
+                    <div class="value" id="emailFailure">-</div>
+                    <div class="unit">failed deliveries</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Dropped Emails</h3>
+                    <div class="value" id="emailDropped">-</div>
+                    <div class="unit">dropped by provider</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Bounced Emails</h3>
+                    <div class="value" id="emailBounced">-</div>
+                    <div class="unit">bounced addresses</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Spam Reported</h3>
+                    <div class="value" id="emailSpam">-</div>
+                    <div class="unit">spam reporting addresses</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Unsubscribed</h3>
+                    <div class="value" id="emailUnsubscribed">-</div>
+                    <div class="unit">unsubscribed addresses</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Delivery Success Rate</h3>
+                    <div class="value" id="emailSuccessRate">-</div>
+                    <div class="unit">% of total emails</div>
+                </div>
+            </div>
+
+            <div class="charts-container">
+                <div class="chart-wrapper">
+                    <h2>Daily Unique Users Trend</h2>
+                    <canvas id="usersChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Successful Logins Trend</h2>
+                    <canvas id="successfulLoginsChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Failed Password Attempts Trend</h2>
+                    <canvas id="failedPasswordsChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Failed MFA Validations Trend</h2>
+                    <canvas id="failedMFAChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily MFA Abandonment Trend</h2>
+                    <canvas id="mfaChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Average Authentication Time Trend</h2>
+                    <canvas id="authTimeChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily FastPass Enrollments Trend</h2>
+                    <canvas id="fastPassEnrollmentsChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Unique FastPass Users Trend</h2>
+                    <canvas id="fastPassUsersChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Unique FastPass Devices Trend</h2>
+                    <canvas id="fastPassDevicesChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Biometric Users Trend</h2>
+                    <canvas id="biometricUsersChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Email Delivery Success vs Failure</h2>
+                    <canvas id="emailDeliveryChart" class="chart-canvas"></canvas>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Daily Email Failure Breakdown</h2>
+                    <canvas id="emailFailureBreakdownChart" class="chart-canvas"></canvas>
+                </div>
+            </div>
+
+            <div class="info">
+                <p><strong>Last updated:</strong> <span id="lastUpdated">-</span></p>
+                <p><strong>Logs processed:</strong> <span id="logsProcessed">-</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let usersChart, mfaChart, authTimeChart, successfulLoginsChart, failedPasswordsChart, failedMFAChart;
+        let fastPassEnrollmentsChart, fastPassUsersChart, fastPassDevicesChart, biometricUsersChart;
+        let emailDeliveryChart, emailFailureBreakdownChart;
+        let progressInterval;
+
+        // Load cached data on page load
+        window.addEventListener('load', () => {
+            loadUserInfo();
+            checkCacheStatus();
+        });
+
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/api/userinfo');
+                const userInfo = await response.json();
+                
+                document.getElementById('userName').textContent = userInfo.name || 'User';
+                document.getElementById('userEmail').textContent = userInfo.email || '';
+            } catch (error) {
+                console.error('Error loading user info:', error);
+                document.getElementById('userName').textContent = 'User';
+            }
+        }
+
+        function logout() {
+            window.location.href = '/logout';
+        }
+
+        async function checkCacheStatus() {
+            try {
+                const response = await fetch('/api/cached-metrics');
+                const data = await response.json();
+
+                if (data.success && data.cached) {
+                    const cacheInfo = document.getElementById('cacheInfo');
+                    cacheInfo.style.display = 'block';
+                    cacheInfo.innerHTML = `
+                        📊 Cached data available (${data.cacheAge} minutes old). 
+                        <a href="#" onclick="loadCachedData(); return false;">Load it now</a> or refresh for latest data.
+                    `;
+                }
+            } catch (error) {
+                console.error('Error checking cache:', error);
+            }
+        }
+
+        async function loadCachedData() {
+            try {
+                const response = await fetch('/api/cached-metrics');
+                const data = await response.json();
+
+                if (data.success && data.cached) {
+                    displayMetrics(data.metrics, data.logsProcessed, data.timestamp);
+                    document.getElementById('metricsContainer').style.display = 'block';
+                    
+                    const cacheInfo = document.getElementById('cacheInfo');
+                    cacheInfo.innerHTML = `✓ Showing cached data (${data.cacheAge} minutes old)`;
+                    cacheInfo.style.background = '#e8f5e9';
+                    cacheInfo.style.borderColor = '#c8e6c9';
+                } else {
+                    alert('No cached data available. Please refresh the data.');
+                }
+            } catch (error) {
+                console.error('Error loading cache:', error);
+                alert('Failed to load cached data: ' + error.message);
+            }
+        }
+
+        async function fetchMetrics() {
+            const fetchBtn = document.getElementById('fetchBtn');
+            const progressContainer = document.getElementById('progressContainer');
+            const container = document.getElementById('metricsContainer');
+
+            fetchBtn.disabled = true;
+            progressContainer.style.display = 'block';
+            container.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/fetch-metrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.processing) {
+                    startProgressPolling();
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    progressContainer.style.display = 'none';
+                    fetchBtn.disabled = false;
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to start fetching metrics: ' + error.message);
+                progressContainer.style.display = 'none';
+                fetchBtn.disabled = false;
+            }
+        }
+
+        function startProgressPolling() {
+            progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/progress');
+                    const progress = await response.json();
+
+                    if (progress.isProcessing) {
+                        updateProgressUI(progress);
+                    } else {
+                        clearInterval(progressInterval);
+                        
+                        if (progress.error) {
+                            alert('Error during processing: ' + progress.error);
+                            document.getElementById('progressContainer').style.display = 'none';
+                            document.getElementById('fetchBtn').disabled = false;
+                        } else {
+                            await loadCachedData();
+                            document.getElementById('progressContainer').style.display = 'none';
+                            document.getElementById('fetchBtn').disabled = false;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling progress:', error);
+                }
+            }, 1000);
+        }
+
+        function updateProgressUI(progress) {
+            document.getElementById('logsProcessedCount').textContent = progress.processedLogs.toLocaleString();
+            document.getElementById('pagesCount').textContent = progress.currentPage;
+            
+            const elapsedSeconds = Math.floor(progress.estimatedTime / 1000);
+            const minutes = Math.floor(elapsedSeconds / 60);
+            const seconds = elapsedSeconds % 60;
+            document.getElementById('elapsedTime').textContent = 
+                minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        }
+
+        async function clearCache() {
+            if (!confirm('Are you sure you want to clear the cache?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/clear-cache', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+                alert(data.message);
+                
+                document.getElementById('cacheInfo').style.display = 'none';
+                document.getElementById('metricsContainer').style.display = 'none';
+            } catch (error) {
+                console.error('Error clearing cache:', error);
+                alert('Failed to clear cache: ' + error.message);
+            }
+        }
+
+        function displayMetrics(metrics, logsProcessed, timestamp) {
+            document.getElementById('uniqueUsers').textContent = metrics.totalUniqueUsers.toLocaleString();
+            document.getElementById('successfulLogins').textContent = metrics.totalSuccessfulLogins.toLocaleString();
+            document.getElementById('failedPasswords').textContent = metrics.totalFailedPasswords.toLocaleString();
+            document.getElementById('failedMFA').textContent = metrics.totalFailedMFA.toLocaleString();
+            document.getElementById('mfaAbandonments').textContent = metrics.totalMfaAbandonments.toLocaleString();
+            document.getElementById('inactiveUsers').textContent = metrics.inactiveUsers.toLocaleString();
+            document.getElementById('avgAuthTime').textContent = metrics.overallAvgAuthTime.toFixed(2);
+            
+            // FastPass metrics
+            document.getElementById('fastPassEnrollments').textContent = metrics.totalFastPassEnrollments.toLocaleString();
+            document.getElementById('fastPassAuthUsers').textContent = metrics.totalFastPassAuthUsers.toLocaleString();
+            document.getElementById('fastPassDevices').textContent = metrics.totalFastPassDevices.toLocaleString();
+            document.getElementById('fastPassAuths').textContent = metrics.totalFastPassAuths.toLocaleString();
+            
+            // Biometric metrics
+            document.getElementById('biometricUsers').textContent = metrics.totalBiometricUsers.toLocaleString();
+            const biometricRate = metrics.totalFastPassAuthUsers > 0 
+                ? ((metrics.totalBiometricUsers / metrics.totalFastPassAuthUsers) * 100).toFixed(1)
+                : '0.0';
+            document.getElementById('biometricRate').textContent = biometricRate;
+            
+            // Email delivery metrics
+            document.getElementById('emailSuccess').textContent = metrics.totalEmailSuccess.toLocaleString();
+            document.getElementById('emailFailure').textContent = metrics.totalEmailFailure.toLocaleString();
+            document.getElementById('emailDropped').textContent = metrics.totalEmailDropped.toLocaleString();
+            document.getElementById('emailBounced').textContent = metrics.totalEmailBounced.toLocaleString();
+            document.getElementById('emailSpam').textContent = metrics.totalEmailSpam.toLocaleString();
+            document.getElementById('emailUnsubscribed').textContent = metrics.totalEmailUnsubscribed.toLocaleString();
+            
+            const totalEmails = metrics.totalEmailSuccess + metrics.totalEmailFailure;
+            const emailSuccessRate = totalEmails > 0 
+                ? ((metrics.totalEmailSuccess / totalEmails) * 100).toFixed(1)
+                : '0.0';
+            document.getElementById('emailSuccessRate').textContent = emailSuccessRate;
+            
+            document.getElementById('lastUpdated').textContent = new Date(timestamp).toLocaleString();
+            document.getElementById('logsProcessed').textContent = logsProcessed.toLocaleString();
+
+            const labels = metrics.dailyData.map(d => {
+                const date = new Date(d.date);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+
+            if (usersChart) usersChart.destroy();
+            if (successfulLoginsChart) successfulLoginsChart.destroy();
+            if (failedPasswordsChart) failedPasswordsChart.destroy();
+            if (failedMFAChart) failedMFAChart.destroy();
+            if (mfaChart) mfaChart.destroy();
+            if (authTimeChart) authTimeChart.destroy();
+            if (fastPassEnrollmentsChart) fastPassEnrollmentsChart.destroy();
+            if (fastPassUsersChart) fastPassUsersChart.destroy();
+            if (fastPassDevicesChart) fastPassDevicesChart.destroy();
+            if (biometricUsersChart) biometricUsersChart.destroy();
+            if (emailDeliveryChart) emailDeliveryChart.destroy();
+            if (emailFailureBreakdownChart) emailFailureBreakdownChart.destroy();
+
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: '#e5e5e5'
+                        },
+                        ticks: {
+                            color: '#6e6e73'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            color: '#6e6e73'
+                        }
+                    }
+                }
+            };
+
+            const usersCtx = document.getElementById('usersChart').getContext('2d');
+            usersChart = new Chart(usersCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Unique Users',
+                        data: metrics.dailyData.map(d => d.uniqueUsers),
+                        borderColor: '#007dc1',
+                        backgroundColor: 'rgba(0, 125, 193, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: chartOptions
+            });
+
+            const successfulLoginsCtx = document.getElementById('successfulLoginsChart').getContext('2d');
+            successfulLoginsChart = new Chart(successfulLoginsCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Successful Logins',
+                        data: metrics.dailyData.map(d => d.successfulLogins),
+                        borderColor: '#00a971',
+                        backgroundColor: 'rgba(0, 169, 113, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: chartOptions
+            });
+
+            const failedPasswordsCtx = document.getElementById('failedPasswordsChart').getContext('2d');
+            failedPasswordsChart = new Chart(failedPasswordsCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Failed Password Attempts',
+                        data: metrics.dailyData.map(d => d.failedPasswords),
+                        backgroundColor: '#dc3545',
+                        borderColor: '#dc3545',
+                        borderWidth: 0,
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+
+            const failedMFACtx = document.getElementById('failedMFAChart').getContext('2d');
+            failedMFAChart = new Chart(failedMFACtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Failed MFA Validations',
+                        data: metrics.dailyData.map(d => d.failedMFA),
+                        backgroundColor: '#fd7e14',
+                        borderColor: '#fd7e14',
+                        borderWidth: 0,
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+
+            const mfaCtx = document.getElementById('mfaChart').getContext('2d');
+            mfaChart = new Chart(mfaCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'MFA Abandonments',
+                        data: metrics.dailyData.map(d => d.mfaAbandonments),
+                        backgroundColor: '#6f42c1',
+                        borderColor: '#6f42c1',
+                        borderWidth: 0,
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+
+            const authTimeCtx = document.getElementById('authTimeChart').getContext('2d');
+            authTimeChart = new Chart(authTimeCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Avg Auth Time (seconds)',
+                        data: metrics.dailyData.map(d => d.avgAuthTime),
+                        borderColor: '#17a2b8',
+                        backgroundColor: 'rgba(23, 162, 184, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: chartOptions
+            });
+
+            // FastPass Enrollments Chart
+            const fastPassEnrollmentsCtx = document.getElementById('fastPassEnrollmentsChart').getContext('2d');
+            fastPassEnrollmentsChart = new Chart(fastPassEnrollmentsCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'FastPass Enrollments',
+                        data: metrics.dailyData.map(d => d.fastPassEnrollments),
+                        backgroundColor: '#28a745',
+                        borderColor: '#28a745',
+                        borderWidth: 0,
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+
+            // FastPass Users Chart
+            const fastPassUsersCtx = document.getElementById('fastPassUsersChart').getContext('2d');
+            fastPassUsersChart = new Chart(fastPassUsersCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Unique FastPass Users',
+                        data: metrics.dailyData.map(d => d.fastPassAuthUsers),
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: chartOptions
+            });
+
+            // FastPass Devices Chart
+            const fastPassDevicesCtx = document.getElementById('fastPassDevicesChart').getContext('2d');
+            fastPassDevicesChart = new Chart(fastPassDevicesCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Unique FastPass Devices',
+                        data: metrics.dailyData.map(d => d.fastPassDevices),
+                        borderColor: '#6c757d',
+                        backgroundColor: 'rgba(108, 117, 125, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: chartOptions
+            });
+
+            // Biometric Users Chart
+            const biometricUsersCtx = document.getElementById('biometricUsersChart').getContext('2d');
+            biometricUsersChart = new Chart(biometricUsersCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Users with Biometric Verification',
+                        data: metrics.dailyData.map(d => d.biometricUsers),
+                        borderColor: '#20c997',
+                        backgroundColor: 'rgba(32, 201, 151, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: chartOptions
+            });
+
+            // Email Delivery Chart (Success vs Failure)
+            const emailDeliveryCtx = document.getElementById('emailDeliveryChart').getContext('2d');
+            emailDeliveryChart = new Chart(emailDeliveryCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Delivered Successfully',
+                        data: metrics.dailyData.map(d => d.emailDeliverySuccess),
+                        backgroundColor: '#28a745',
+                        borderRadius: 6
+                    }, {
+                        label: 'Delivery Failed',
+                        data: metrics.dailyData.map(d => d.emailDeliveryFailure),
+                        backgroundColor: '#dc3545',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stacked: false,
+                            grid: {
+                                color: '#e5e5e5'
+                            },
+                            ticks: {
+                                color: '#6e6e73'
+                            }
+                        },
+                        x: {
+                            stacked: false,
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#6e6e73'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Email Failure Breakdown Chart
+            const emailFailureBreakdownCtx = document.getElementById('emailFailureBreakdownChart').getContext('2d');
+            emailFailureBreakdownChart = new Chart(emailFailureBreakdownCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Dropped',
+                        data: metrics.dailyData.map(d => d.emailDropped),
+                        backgroundColor: '#6c757d',
+                        borderRadius: 6
+                    }, {
+                        label: 'Bounced',
+                        data: metrics.dailyData.map(d => d.emailBounced),
+                        backgroundColor: '#ffc107',
+                        borderRadius: 6
+                    }, {
+                        label: 'Spam',
+                        data: metrics.dailyData.map(d => d.emailSpam),
+                        backgroundColor: '#dc3545',
+                        borderRadius: 6
+                    }, {
+                        label: 'Unsubscribed',
+                        data: metrics.dailyData.map(d => d.emailUnsubscribed),
+                        backgroundColor: '#6f42c1',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stacked: true,
+                            grid: {
+                                color: '#e5e5e5'
+                            },
+                            ticks: {
+                                color: '#6e6e73'
+                            }
+                        },
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#6e6e73'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
