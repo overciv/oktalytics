@@ -7,7 +7,6 @@ const okta = require('@okta/okta-sdk-nodejs');
 const path = require('path');
 const fs = require('fs').promises;
 
-const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Cache configuration
@@ -19,42 +18,6 @@ const oktaClient = new okta.Client({
   orgUrl: process.env.OKTA_ORG_URL,
   token: process.env.OKTA_API_TOKEN
 });
-
-// Session configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-random-secret-key-change-this',
-  resave: true,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
-}));
-
-// OIDC configuration
-const oidc = new ExpressOIDC({
-  issuer: `${process.env.OKTA_ORG_URL}/oauth2/default`,
-  client_id: process.env.OKTA_CLIENT_ID,
-  client_secret: process.env.OKTA_CLIENT_SECRET,
-  appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${PORT}`,
-  redirect_uri: process.env.REDIRECT_URI || `http://localhost:${PORT}/authorization-code/callback`,
-  scope: 'openid profile email',
-  routes: {
-    login: {
-      path: '/login'
-    },
-    loginCallback: {
-      path: '/authorization-code/callback',
-      afterCallback: '/'
-    }
-  }
-});
-
-app.use(oidc.router);
-
-app.use(express.json());
-app.use(express.static('public'));
 
 // Progress tracking for real-time updates
 let progressData = {
@@ -501,13 +464,76 @@ function calculateFinalMetrics(metricsData) {
   };
 }
 
+// NOW CREATE EXPRESS APP AND CONFIGURE MIDDLEWARE
+const app = express();
+
+// Session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-random-secret-key-change-this',
+  resave: true,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+// OIDC configuration
+const oidc = new ExpressOIDC({
+  issuer: `${process.env.OKTA_ORG_URL}/oauth2/default`,
+  client_id: process.env.OKTA_CLIENT_ID,
+  client_secret: process.env.OKTA_CLIENT_SECRET,
+  appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${PORT}`,
+  redirect_uri: process.env.REDIRECT_URI || `http://localhost:${PORT}/authorization-code/callback`,
+  scope: 'openid profile email',
+  routes: {
+    login: {
+      path: '/login'
+    },
+    loginCallback: {
+      path: '/authorization-code/callback',
+      afterCallback: '/dashboard'
+    }
+  },
+  postLogoutRedirectUri: process.env.POST_LOGOUT_REDIRECT_URI || `http://localhost:${PORT}`
+});
+
+app.use(oidc.router);
+app.use(express.json());
+
+// Middleware to check authentication
+const requireAuth = (req, res, next) => {
+  if (!req.userContext || !req.userContext.userinfo) {
+    return res.redirect('/login');
+  }
+  next();
+};
+
+// Authentication check before serving static files
+app.use((req, res, next) => {
+  if (req.path.startsWith('/login') || 
+      req.path.startsWith('/authorization-code/callback') ||
+      req.path.startsWith('/logout')) {
+    return next();
+  }
+  
+  if (!req.userContext || !req.userContext.userinfo) {
+    return res.redirect('/login');
+  }
+  
+  next();
+});
+
+app.use(express.static('public'));
+
 // API endpoint to get current progress
-app.get('/api/progress', oidc.ensureAuthenticated(), (req, res) => {
+app.get('/api/progress', requireAuth, (req, res) => {
   res.json(progressData);
 });
 
 // API endpoint to get user info
-app.get('/api/userinfo', oidc.ensureAuthenticated(), (req, res) => {
+app.get('/api/userinfo', requireAuth, (req, res) => {
   res.json({
     name: req.userContext.userinfo.name,
     email: req.userContext.userinfo.email,
@@ -516,7 +542,7 @@ app.get('/api/userinfo', oidc.ensureAuthenticated(), (req, res) => {
 });
 
 // API endpoint to fetch cached metrics
-app.get('/api/cached-metrics', oidc.ensureAuthenticated(), async (req, res) => {
+app.get('/api/cached-metrics', requireAuth, async (req, res) => {
   try {
     const cache = await loadCache();
     if (cache) {
@@ -544,7 +570,7 @@ app.get('/api/cached-metrics', oidc.ensureAuthenticated(), async (req, res) => {
 });
 
 // API endpoint to fetch and calculate metrics with progress
-app.post('/api/fetch-metrics', oidc.ensureAuthenticated(), async (req, res) => {
+app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
   // Prevent concurrent processing
   if (progressData.isProcessing) {
     return res.status(429).json({
@@ -611,7 +637,7 @@ app.post('/api/fetch-metrics', oidc.ensureAuthenticated(), async (req, res) => {
 });
 
 // API endpoint to clear cache
-app.post('/api/clear-cache', oidc.ensureAuthenticated(), async (req, res) => {
+app.post('/api/clear-cache', requireAuth, async (req, res) => {
   try {
     await fs.unlink(CACHE_FILE);
     res.json({ success: true, message: 'Cache cleared' });
@@ -620,24 +646,43 @@ app.post('/api/clear-cache', oidc.ensureAuthenticated(), async (req, res) => {
   }
 });
 
-// Root redirects to login
+// Root automatically redirects to dashboard (which will trigger login if needed)
 app.get('/', (req, res) => {
-  if (req.userContext) {
-    res.redirect('/dashboard');
-  } else {
-    res.redirect('/login');
+  if (!req.userContext || !req.userContext.userinfo) {
+    return res.redirect('/login');
   }
+  res.redirect('/dashboard');
 });
 
 // Dashboard route (protected)
-app.get('/dashboard', oidc.ensureAuthenticated(), (req, res) => {
+app.get('/dashboard', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
-// Logout route
+// Logout route - Okta Single Logout (SLO)
 app.get('/logout', (req, res) => {
-  req.logout();
-  res.redirect('/');
+  const idToken = req.userContext ? req.userContext.tokens.id_token : null;
+  
+  req.logout((err) => {
+    if (err) {
+      console.error('Logout error:', err);
+    }
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destroy error:', err);
+      }
+      
+      // Redirect to Okta logout endpoint for Single Logout
+      if (idToken) {
+        const logoutUrl = `${process.env.OKTA_ORG_URL}/oauth2/default/v1/logout?` +
+          `id_token_hint=${idToken}&` +
+          `post_logout_redirect_uri=${encodeURIComponent(process.env.POST_LOGOUT_REDIRECT_URI || `http://localhost:${PORT}`)}`;
+        res.redirect(logoutUrl);
+      } else {
+        res.redirect('/');
+      }
+    });
+  });
 });
 
 // Error handler
@@ -661,3 +706,48 @@ oidc.on('ready', () => {
 oidc.on('error', (err) => {
   console.error('OIDC Error:', err);
 });
+
+// package.json
+/*
+{
+  "name": "okta-analytics-dashboard",
+  "version": "2.0.0",
+  "description": "Okta Authentication Analytics Dashboard - Optimized",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "@okta/okta-sdk-nodejs": "^7.0.0",
+    "@okta/oidc-middleware": "^4.5.0",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
+*/
+
+// .env.example
+/*
+# Okta Organization Settings
+OKTA_ORG_URL=https://your-domain.okta.com
+OKTA_API_TOKEN=your-api-token-here
+
+# OIDC Settings
+OKTA_CLIENT_ID=your-client-id
+OKTA_CLIENT_SECRET=your-client-secret
+APP_BASE_URL=http://localhost:3000
+REDIRECT_URI=http://localhost:3000/authorization-code/callback
+POST_LOGOUT_REDIRECT_URI=http://localhost:3000
+
+# Session Secret
+SESSION_SECRET=your-random-secret-key-change-this-in-production
+
+# Application Settings
+PORT=3000
+NODE_ENV=development
+*/
