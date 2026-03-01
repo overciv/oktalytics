@@ -82,7 +82,7 @@ async function saveCache(metrics, logsProcessed, appId) {
 }
 
 // Incremental fetch with streaming processing
-async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
+function initializeMetrics() {
   const metrics = {
     dailyMetrics: {},
     uniqueUsers: new Set(),
@@ -90,8 +90,6 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
     authenticationTransactions: {},
     userLastActivity: {}
   };
-
-  // Initialize daily metrics
   for (let i = 0; i < 31; i++) {
     const date = new Date();
     date.setDate(date.getDate() - i);
@@ -116,21 +114,23 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
       emailUnsubscribed: 0
     };
   }
-
-  // Add FastPass and biometric tracking sets
   metrics.fastPassEnrolledUsers = new Set();
   metrics.fastPassAuthUsers = new Set();
   metrics.fastPassDevices = new Set();
   metrics.biometricUsers = new Set();
+  return metrics;
+}
 
+// scopes: array of { appId, metrics } — each page is processed against all scopes in one pass
+async function fetchLogsIncremental(sinceDate, untilDate, scopes, onProgress) {
   let totalProcessed = 0;
   let retryCount = 0;
   const maxRetries = 5;
   let pageCount = 0;
-  
+
   try {
     let url = `${process.env.OKTA_ORG_URL}/api/v1/logs?since=${sinceDate}&until=${untilDate}&limit=1000`;
-    
+
     while (url) {
       try {
         const response = await fetch(url, {
@@ -144,11 +144,9 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get('x-rate-limit-reset')) || 60;
           const waitTime = Math.min(retryAfter * 1000, 60000);
-          
           console.log(`Rate limited. Waiting ${waitTime/1000} seconds...`);
           await sleep(waitTime);
           retryCount++;
-          
           if (retryCount >= maxRetries) {
             throw new Error('Max retries exceeded for rate limiting');
           }
@@ -161,10 +159,12 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
 
         const logs = await response.json();
         pageCount++;
-        
-        // Process logs immediately (streaming processing)
-        processLogsBatch(logs, metrics, appId);
-        
+
+        // Process this page against every scope in one pass
+        for (const scope of scopes) {
+          processLogsBatch(logs, scope.metrics, scope.appId);
+        }
+
         totalProcessed += logs.length;
         
         // Update progress
@@ -202,7 +202,7 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
     throw error;
   }
 
-  return { metrics, totalProcessed };
+  return { scopes, totalProcessed };
 }
 
 // Process a batch of logs immediately
@@ -667,32 +667,38 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
   try {
     const now = new Date();
     const thirtyOneDaysAgo = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
-
     const sinceDate = thirtyOneDaysAgo.toISOString();
     const untilDate = now.toISOString();
 
-    console.log(`Starting incremental fetch from ${sinceDate} to ${untilDate} (appId: ${appId})`);
+    // When fetching "all", also build a scope per configured app in one pass
+    const scopes = [{ appId, metrics: initializeMetrics() }];
+    if (appId === 'all' && OKTA_APPS.length > 0) {
+      for (const app of OKTA_APPS) {
+        scopes.push({ appId: app.id, metrics: initializeMetrics() });
+      }
+    }
 
-    const { metrics: metricsData, totalProcessed } = await fetchLogsIncremental(
+    console.log(`Starting fetch for scopes: ${scopes.map(s => s.appId).join(', ')}`);
+
+    const { scopes: processedScopes, totalProcessed } = await fetchLogsIncremental(
       sinceDate,
       untilDate,
-      appId,
+      scopes,
       (progress) => {
         progressData.processedLogs = progress.processedLogs;
         progressData.currentPage = progress.currentPage;
         progressData.totalLogs = progress.processedLogs;
-
-        const elapsed = Date.now() - progressData.startTime;
-        progressData.estimatedTime = elapsed;
+        progressData.estimatedTime = Date.now() - progressData.startTime;
       }
     );
 
-    console.log(`Processed ${totalProcessed} log entries`);
+    console.log(`Processed ${totalProcessed} log entries across ${processedScopes.length} scope(s)`);
 
-    const finalMetrics = calculateFinalMetrics(metricsData);
-
-    // Save to cache
-    await saveCache(finalMetrics, totalProcessed, appId);
+    // Save cache for every scope
+    for (const scope of processedScopes) {
+      const finalMetrics = calculateFinalMetrics(scope.metrics);
+      await saveCache(finalMetrics, totalProcessed, scope.appId);
+    }
 
     progressData.isProcessing = false;
     progressData.totalLogs = totalProcessed;
@@ -708,7 +714,13 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
 app.post('/api/clear-cache', requireAuth, async (req, res) => {
   const appId = req.body.appId || 'all';
   try {
-    await fs.unlink(getCacheFile(appId));
+    if (appId === 'all') {
+      // Clear every cache file
+      const files = await fs.readdir('./cache');
+      await Promise.all(files.map(f => fs.unlink(`./cache/${f}`).catch(() => {})));
+    } else {
+      await fs.unlink(getCacheFile(appId));
+    }
     res.json({ success: true, message: 'Cache cleared' });
   } catch (error) {
     res.json({ success: true, message: 'No cache to clear' });
