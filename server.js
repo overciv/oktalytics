@@ -130,9 +130,6 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
   
   try {
     let url = `${process.env.OKTA_ORG_URL}/api/v1/logs?since=${sinceDate}&until=${untilDate}&limit=1000`;
-    if (appId && appId !== 'all') {
-      url += `&filter=${encodeURIComponent(`target.id eq "${appId}"`)}`;
-    }
     
     while (url) {
       try {
@@ -166,7 +163,7 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
         pageCount++;
         
         // Process logs immediately (streaming processing)
-        processLogsBatch(logs, metrics);
+        processLogsBatch(logs, metrics, appId);
         
         totalProcessed += logs.length;
         
@@ -209,14 +206,20 @@ async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
 }
 
 // Process a batch of logs immediately
-function processLogsBatch(logs, metrics) {
+function processLogsBatch(logs, metrics, appId) {
   logs.forEach(log => {
+    // When scoped to a specific app, only process events where that app appears as a target
+    if (appId && appId !== 'all') {
+      const targets = log.target || [];
+      if (!targets.some(t => t.id === appId)) return;
+    }
+
     const dateKey = log.published.split('T')[0];
     const userId = log.actor?.id;
     const eventType = log.eventType;
     const outcome = log.outcome?.result;
     const outcomeReason = log.outcome?.reason;
-    
+
     if (!metrics.dailyMetrics[dateKey]) return;
 
     // Track user last activity
