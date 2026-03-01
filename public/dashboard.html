@@ -391,6 +391,10 @@
             padding-top: 0;
         }
 
+        .charts-container.charts-hidden {
+            display: none;
+        }
+
         @media (max-width: 768px) {
             .header-content {
                 padding: 0 20px;
@@ -452,6 +456,7 @@
             <button id="clearCacheBtn" class="secondary-btn" onclick="clearCache()">Clear Cache</button>
             <button class="secondary-btn" onclick="expandAll()">Expand All</button>
             <button class="secondary-btn" onclick="foldAll()">Fold All</button>
+            <button class="secondary-btn" id="toggleChartsBtn" onclick="toggleCharts()">Hide Charts</button>
         </div>
 
         <div id="progressContainer" class="progress-container">
@@ -716,6 +721,16 @@
                 document.getElementById(`section-${id}-content`).classList.add('collapsed');
                 document.getElementById(`section-${id}-chevron`).classList.add('collapsed');
             });
+        }
+
+        let chartsVisible = true;
+        function toggleCharts() {
+            chartsVisible = !chartsVisible;
+            document.querySelectorAll('.charts-container').forEach(el => {
+                el.classList.toggle('charts-hidden', !chartsVisible);
+            });
+            document.getElementById('toggleChartsBtn').textContent =
+                chartsVisible ? 'Hide Charts' : 'Show Charts';
         }
 
         // Load cached data on page load
