@@ -49,7 +49,8 @@ This is a single-file Node.js/Express application (`server.js`) that reads Okta 
 **Frontend:** `public/dashboard.html` is a self-contained single-page app (inline CSS + JS, Chart.js from CDN). It calls the API endpoints directly and renders charts using Chart.js. `public/index.html` is the unauthenticated landing/marketing page; authenticated users are redirected away from `/` to `/dashboard`.
 
 **Key event types tracked in processLogsBatch:**
-- `user.session.start` — successful logins and unique users
+- `user.session.start` — successful logins and unique users (All Apps scope only)
+- `user.authentication.sso` — successful logins and unique users (app-scoped only; covers both SP and IDP-initiated flows; `user.session.start` is used for All Apps because SSO events would inflate counts across apps)
 - `user.authentication.authenticate` / `user.mfa.*` — failed passwords, failed MFA, FastPass
 - `user.mfa.factor.activate` with reason `"User set up SIGNED_NONCE factor"` — FastPass enrollments
 - `system.email.delivery` — email delivery success/failure/dropped/bounced/spam/unsubscribed
@@ -63,6 +64,7 @@ This is a single-file Node.js/Express application (`server.js`) that reads Okta 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/apps` | Return configured app list from `OKTA_APPS` |
+| GET | `/api/debug/app-targets` | Scan last 7 days of logs and return all `AppInstance` target IDs found (useful for finding the correct app IDs to put in `OKTA_APPS`) |
 | GET | `/api/cached-metrics?appId=` | Return cached metrics for scope (`all` or app ID) |
 | POST | `/api/fetch-metrics` | Trigger background log processing (`{ appId }` in body) |
 | GET | `/api/progress` | Poll processing progress |

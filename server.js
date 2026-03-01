@@ -230,13 +230,24 @@ function processLogsBatch(logs, metrics, appId) {
       }
     }
 
-    // Track unique users who authenticated
-    if (eventType === 'user.session.start' && userId) {
-      metrics.uniqueUsers.add(userId);
-      metrics.dailyMetrics[dateKey].uniqueUsers.add(userId);
-      
-      if (outcome === 'SUCCESS') {
+    // Track unique users and successful logins.
+    // - All Apps scope: use user.session.start (counts new Okta sessions)
+    // - App-scoped: use user.authentication.sso which fires for both SP and IDP-initiated
+    //   SSO flows and always lists the target app, whereas user.session.start only lists
+    //   the app as a target for SP-initiated flows.
+    if (appId && appId !== 'all') {
+      if (eventType === 'user.authentication.sso' && outcome === 'SUCCESS' && userId) {
+        metrics.uniqueUsers.add(userId);
+        metrics.dailyMetrics[dateKey].uniqueUsers.add(userId);
         metrics.dailyMetrics[dateKey].successfulLogins++;
+      }
+    } else {
+      if (eventType === 'user.session.start' && userId) {
+        metrics.uniqueUsers.add(userId);
+        metrics.dailyMetrics[dateKey].uniqueUsers.add(userId);
+        if (outcome === 'SUCCESS') {
+          metrics.dailyMetrics[dateKey].successfulLogins++;
+        }
       }
     }
 
@@ -557,6 +568,41 @@ app.get('/api/userinfo', requireAuth, (req, res) => {
 // API endpoint to list configured applications
 app.get('/api/apps', requireAuth, (req, res) => {
   res.json({ apps: OKTA_APPS });
+});
+
+// Diagnostic endpoint: scan recent logs and return all unique app targets found
+app.get('/api/debug/app-targets', requireAuth, async (req, res) => {
+  try {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const url = `${process.env.OKTA_ORG_URL}/api/v1/logs?since=${since}&limit=1000`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `SSWS ${process.env.OKTA_API_TOKEN}`,
+        'Accept': 'application/json'
+      }
+    });
+    if (!response.ok) throw new Error(`Okta API error: ${response.status}`);
+    const logs = await response.json();
+
+    const appsById = {};
+    logs.forEach(log => {
+      (log.target || []).forEach(t => {
+        if (t.type === 'AppInstance' && t.id && !appsById[t.id]) {
+          appsById[t.id] = { id: t.id, displayName: t.displayName, alternateId: t.alternateId };
+        }
+      });
+    });
+
+    const configuredIds = new Set(OKTA_APPS.map(a => a.id));
+    const appTargets = Object.values(appsById).map(a => ({
+      ...a,
+      configuredInEnv: configuredIds.has(a.id)
+    }));
+
+    res.json({ logsScanned: logs.length, appTargets });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // API endpoint to fetch cached metrics
