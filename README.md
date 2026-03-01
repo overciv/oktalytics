@@ -2,6 +2,8 @@
 
 A Node.js/Express web application that reads 31 days of Okta System Logs and displays authentication analytics on a protected dashboard. Access requires logging in with an Okta account.
 
+<img width="740" height="735" alt="screenshot" src="https://github.com/user-attachments/assets/04f9be24-e770-4988-a82a-870b4b9f2dc6" />
+
 ## Features
 
 - **Authentication overview** — unique users, successful logins, failed passwords, failed MFA, MFA abandonments, inactive users, avg auth time
