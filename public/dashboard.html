@@ -322,6 +322,75 @@
             margin: 8px 0;
         }
 
+        .metrics-section {
+            margin-bottom: 16px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 20px 0;
+            border-bottom: 2px solid #e5e5e5;
+            user-select: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .section-header:hover {
+            border-bottom-color: #007dc1;
+        }
+
+        .section-header h2 {
+            color: #1d1d1f;
+            font-size: 32px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            margin: 0;
+        }
+
+        .section-chevron {
+            background: none;
+            border: 2px solid #e5e5e5;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.25s ease, border-color 0.2s ease, color 0.2s ease;
+            flex-shrink: 0;
+            padding: 0;
+            color: #6e6e73;
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        .section-chevron:hover:not(:disabled) {
+            border-color: #007dc1;
+            color: #007dc1;
+            background: #f0f7fc;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .section-chevron.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .section-content {
+            overflow: hidden;
+            max-height: 20000px;
+            transition: max-height 0.4s ease, padding-top 0.3s ease;
+            padding-top: 32px;
+        }
+
+        .section-content.collapsed {
+            max-height: 0;
+            padding-top: 0;
+        }
+
         @media (max-width: 768px) {
             .header-content {
                 padding: 0 20px;
@@ -381,6 +450,8 @@
             <button id="loadCacheBtn" onclick="loadCachedData()">Load Cached Data</button>
             <button id="fetchBtn" onclick="fetchMetrics()">Refresh Data</button>
             <button id="clearCacheBtn" class="secondary-btn" onclick="clearCache()">Clear Cache</button>
+            <button class="secondary-btn" onclick="expandAll()">Expand All</button>
+            <button class="secondary-btn" onclick="foldAll()">Fold All</button>
         </div>
 
         <div id="progressContainer" class="progress-container">
@@ -406,183 +477,208 @@
         </div>
 
         <div id="metricsContainer" style="display: none;">
-            <div class="metrics-summary">
-                <div class="metric-card">
-                    <h3>Unique Users</h3>
-                    <div class="value" id="uniqueUsers">-</div>
-                    <div class="unit">authenticated in 31 days</div>
+
+            <!-- Authentication Overview -->
+            <div class="metrics-section">
+                <div class="section-header" onclick="toggleSection('auth')">
+                    <h2>Authentication Overview</h2>
+                    <button class="section-chevron" id="section-auth-chevron">&#8964;</button>
                 </div>
-                <div class="metric-card">
-                    <h3>Successful Logins</h3>
-                    <div class="value" id="successfulLogins">-</div>
-                    <div class="unit">total sessions</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Failed Passwords</h3>
-                    <div class="value" id="failedPasswords">-</div>
-                    <div class="unit">invalid credentials</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Failed MFA</h3>
-                    <div class="value" id="failedMFA">-</div>
-                    <div class="unit">second factor failures</div>
-                </div>
-                <div class="metric-card">
-                    <h3>MFA Abandonments</h3>
-                    <div class="value" id="mfaAbandonments">-</div>
-                    <div class="unit">users abandoned</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Inactive Users</h3>
-                    <div class="value" id="inactiveUsers">-</div>
-                    <div class="unit">inactive 90+ days</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Auth Time</h3>
-                    <div class="value" id="avgAuthTime">-</div>
-                    <div class="unit">avg seconds</div>
+                <div class="section-content" id="section-auth-content">
+                    <div class="metrics-summary">
+                        <div class="metric-card">
+                            <h3>Unique Users</h3>
+                            <div class="value" id="uniqueUsers">-</div>
+                            <div class="unit">authenticated in 31 days</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Successful Logins</h3>
+                            <div class="value" id="successfulLogins">-</div>
+                            <div class="unit">total sessions</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Failed Passwords</h3>
+                            <div class="value" id="failedPasswords">-</div>
+                            <div class="unit">invalid credentials</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Failed MFA</h3>
+                            <div class="value" id="failedMFA">-</div>
+                            <div class="unit">second factor failures</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>MFA Abandonments</h3>
+                            <div class="value" id="mfaAbandonments">-</div>
+                            <div class="unit">users abandoned</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Inactive Users</h3>
+                            <div class="value" id="inactiveUsers">-</div>
+                            <div class="unit">inactive 90+ days</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Auth Time</h3>
+                            <div class="value" id="avgAuthTime">-</div>
+                            <div class="unit">avg seconds</div>
+                        </div>
+                    </div>
+                    <div class="charts-container">
+                        <div class="chart-wrapper">
+                            <h2>Daily Unique Users Trend</h2>
+                            <canvas id="usersChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Successful Logins Trend</h2>
+                            <canvas id="successfulLoginsChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Failed Password Attempts Trend</h2>
+                            <canvas id="failedPasswordsChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Failed MFA Validations Trend</h2>
+                            <canvas id="failedMFAChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily MFA Abandonment Trend</h2>
+                            <canvas id="mfaChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Average Authentication Time Trend</h2>
+                            <canvas id="authTimeChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <h2 style="color: #1d1d1f; font-size: 32px; font-weight: 600; margin: 48px 0 24px 0; letter-spacing: -0.5px;">🔐 FastPass Metrics</h2>
-            
-            <div class="metrics-summary">
-                <div class="metric-card">
-                    <h3>FastPass Enrollments</h3>
-                    <div class="value" id="fastPassEnrollments">-</div>
-                    <div class="unit">total enrollments (31 days)</div>
+            <!-- FastPass Metrics -->
+            <div class="metrics-section">
+                <div class="section-header" onclick="toggleSection('fastpass')">
+                    <h2>&#128272; FastPass Metrics</h2>
+                    <button class="section-chevron" id="section-fastpass-chevron">&#8964;</button>
                 </div>
-                <div class="metric-card">
-                    <h3>Users Using FastPass</h3>
-                    <div class="value" id="fastPassAuthUsers">-</div>
-                    <div class="unit">unique users</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Devices Using FastPass</h3>
-                    <div class="value" id="fastPassDevices">-</div>
-                    <div class="unit">unique devices</div>
-                </div>
-                <div class="metric-card">
-                    <h3>FastPass Authentications</h3>
-                    <div class="value" id="fastPassAuths">-</div>
-                    <div class="unit">total authentications</div>
-                </div>
-            </div>
-
-            <h2 style="color: #1d1d1f; font-size: 32px; font-weight: 600; margin: 48px 0 24px 0; letter-spacing: -0.5px;">🔬 Biometric Usage Breakdown</h2>
-            
-            <div class="metrics-summary">
-                <div class="metric-card">
-                    <h3>Biometric Authentication</h3>
-                    <div class="value" id="biometricUsers">-</div>
-                    <div class="unit">users with biometric verification</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Biometric Adoption Rate</h3>
-                    <div class="value" id="biometricRate">-</div>
-                    <div class="unit">% of FastPass users</div>
-                </div>
-            </div>
-
-            <h2 style="color: #1d1d1f; font-size: 32px; font-weight: 600; margin: 48px 0 24px 0; letter-spacing: -0.5px;">📧 Email Delivery Metrics</h2>
-            
-            <div class="metrics-summary">
-                <div class="metric-card">
-                    <h3>Emails Delivered</h3>
-                    <div class="value" id="emailSuccess">-</div>
-                    <div class="unit">successful deliveries</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Emails Not Delivered</h3>
-                    <div class="value" id="emailFailure">-</div>
-                    <div class="unit">failed deliveries</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Dropped Emails</h3>
-                    <div class="value" id="emailDropped">-</div>
-                    <div class="unit">dropped by provider</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Bounced Emails</h3>
-                    <div class="value" id="emailBounced">-</div>
-                    <div class="unit">bounced addresses</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Spam Reported</h3>
-                    <div class="value" id="emailSpam">-</div>
-                    <div class="unit">spam reporting addresses</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Unsubscribed</h3>
-                    <div class="value" id="emailUnsubscribed">-</div>
-                    <div class="unit">unsubscribed addresses</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Delivery Success Rate</h3>
-                    <div class="value" id="emailSuccessRate">-</div>
-                    <div class="unit">% of total emails</div>
+                <div class="section-content" id="section-fastpass-content">
+                    <div class="metrics-summary">
+                        <div class="metric-card">
+                            <h3>FastPass Enrollments</h3>
+                            <div class="value" id="fastPassEnrollments">-</div>
+                            <div class="unit">total enrollments (31 days)</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Users Using FastPass</h3>
+                            <div class="value" id="fastPassAuthUsers">-</div>
+                            <div class="unit">unique users</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Devices Using FastPass</h3>
+                            <div class="value" id="fastPassDevices">-</div>
+                            <div class="unit">unique devices</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>FastPass Authentications</h3>
+                            <div class="value" id="fastPassAuths">-</div>
+                            <div class="unit">total authentications</div>
+                        </div>
+                    </div>
+                    <div class="charts-container">
+                        <div class="chart-wrapper">
+                            <h2>Daily FastPass Enrollments Trend</h2>
+                            <canvas id="fastPassEnrollmentsChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Unique FastPass Users Trend</h2>
+                            <canvas id="fastPassUsersChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Unique FastPass Devices Trend</h2>
+                            <canvas id="fastPassDevicesChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="charts-container">
-                <div class="chart-wrapper">
-                    <h2>Daily Unique Users Trend</h2>
-                    <canvas id="usersChart" class="chart-canvas"></canvas>
+            <!-- Biometric Usage -->
+            <div class="metrics-section">
+                <div class="section-header" onclick="toggleSection('biometric')">
+                    <h2>&#128302; Biometric Usage</h2>
+                    <button class="section-chevron" id="section-biometric-chevron">&#8964;</button>
                 </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Successful Logins Trend</h2>
-                    <canvas id="successfulLoginsChart" class="chart-canvas"></canvas>
+                <div class="section-content" id="section-biometric-content">
+                    <div class="metrics-summary">
+                        <div class="metric-card">
+                            <h3>Biometric Authentication</h3>
+                            <div class="value" id="biometricUsers">-</div>
+                            <div class="unit">users with biometric verification</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Biometric Adoption Rate</h3>
+                            <div class="value" id="biometricRate">-</div>
+                            <div class="unit">% of FastPass users</div>
+                        </div>
+                    </div>
+                    <div class="charts-container">
+                        <div class="chart-wrapper">
+                            <h2>Daily Biometric Users Trend</h2>
+                            <canvas id="biometricUsersChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
                 </div>
+            </div>
 
-                <div class="chart-wrapper">
-                    <h2>Daily Failed Password Attempts Trend</h2>
-                    <canvas id="failedPasswordsChart" class="chart-canvas"></canvas>
+            <!-- Email Delivery -->
+            <div class="metrics-section">
+                <div class="section-header" onclick="toggleSection('email')">
+                    <h2>&#128231; Email Delivery</h2>
+                    <button class="section-chevron" id="section-email-chevron">&#8964;</button>
                 </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Failed MFA Validations Trend</h2>
-                    <canvas id="failedMFAChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily MFA Abandonment Trend</h2>
-                    <canvas id="mfaChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Average Authentication Time Trend</h2>
-                    <canvas id="authTimeChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily FastPass Enrollments Trend</h2>
-                    <canvas id="fastPassEnrollmentsChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Unique FastPass Users Trend</h2>
-                    <canvas id="fastPassUsersChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Unique FastPass Devices Trend</h2>
-                    <canvas id="fastPassDevicesChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Biometric Users Trend</h2>
-                    <canvas id="biometricUsersChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Email Delivery Success vs Failure</h2>
-                    <canvas id="emailDeliveryChart" class="chart-canvas"></canvas>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Daily Email Failure Breakdown</h2>
-                    <canvas id="emailFailureBreakdownChart" class="chart-canvas"></canvas>
+                <div class="section-content" id="section-email-content">
+                    <div class="metrics-summary">
+                        <div class="metric-card">
+                            <h3>Emails Delivered</h3>
+                            <div class="value" id="emailSuccess">-</div>
+                            <div class="unit">successful deliveries</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Emails Not Delivered</h3>
+                            <div class="value" id="emailFailure">-</div>
+                            <div class="unit">failed deliveries</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Dropped Emails</h3>
+                            <div class="value" id="emailDropped">-</div>
+                            <div class="unit">dropped by provider</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Bounced Emails</h3>
+                            <div class="value" id="emailBounced">-</div>
+                            <div class="unit">bounced addresses</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Spam Reported</h3>
+                            <div class="value" id="emailSpam">-</div>
+                            <div class="unit">spam reporting addresses</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Unsubscribed</h3>
+                            <div class="value" id="emailUnsubscribed">-</div>
+                            <div class="unit">unsubscribed addresses</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Delivery Success Rate</h3>
+                            <div class="value" id="emailSuccessRate">-</div>
+                            <div class="unit">% of total emails</div>
+                        </div>
+                    </div>
+                    <div class="charts-container">
+                        <div class="chart-wrapper">
+                            <h2>Daily Email Delivery Success vs Failure</h2>
+                            <canvas id="emailDeliveryChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Email Failure Breakdown</h2>
+                            <canvas id="emailFailureBreakdownChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -599,6 +695,28 @@
         let emailDeliveryChart, emailFailureBreakdownChart;
         let progressInterval;
         let selectedAppId = 'all';
+        const SECTIONS = ['auth', 'fastpass', 'biometric', 'email'];
+
+        function toggleSection(id) {
+            const content = document.getElementById(`section-${id}-content`);
+            const chevron = document.getElementById(`section-${id}-chevron`);
+            const collapsed = content.classList.toggle('collapsed');
+            chevron.classList.toggle('collapsed', collapsed);
+        }
+
+        function expandAll() {
+            SECTIONS.forEach(id => {
+                document.getElementById(`section-${id}-content`).classList.remove('collapsed');
+                document.getElementById(`section-${id}-chevron`).classList.remove('collapsed');
+            });
+        }
+
+        function foldAll() {
+            SECTIONS.forEach(id => {
+                document.getElementById(`section-${id}-content`).classList.add('collapsed');
+                document.getElementById(`section-${id}-chevron`).classList.add('collapsed');
+            });
+        }
 
         // Load cached data on page load
         window.addEventListener('load', () => {
