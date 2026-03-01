@@ -10,8 +10,15 @@ const fs = require('fs').promises;
 const PORT = process.env.PORT || 3000;
 
 // Cache configuration
-const CACHE_FILE = './cache/metrics-cache.json';
 const CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
+
+function getCacheFile(appId) {
+  if (!appId || appId === 'all') return './cache/metrics-all.json';
+  return `./cache/metrics-app-${appId}.json`;
+}
+
+// Configured applications for scoped metrics
+const OKTA_APPS = process.env.OKTA_APPS ? JSON.parse(process.env.OKTA_APPS) : [];
 
 // Initialize Okta Client
 const oktaClient = new okta.Client({
@@ -44,11 +51,11 @@ async function ensureCacheDir() {
 }
 
 // Load cached metrics
-async function loadCache() {
+async function loadCache(appId) {
   try {
-    const data = await fs.readFile(CACHE_FILE, 'utf8');
+    const data = await fs.readFile(getCacheFile(appId), 'utf8');
     const cache = JSON.parse(data);
-    
+
     // Check if cache is still valid
     if (Date.now() - cache.timestamp < CACHE_DURATION) {
       return cache;
@@ -60,7 +67,7 @@ async function loadCache() {
 }
 
 // Save metrics to cache
-async function saveCache(metrics, logsProcessed) {
+async function saveCache(metrics, logsProcessed, appId) {
   try {
     await ensureCacheDir();
     const cacheData = {
@@ -68,14 +75,14 @@ async function saveCache(metrics, logsProcessed) {
       logsProcessed,
       timestamp: Date.now()
     };
-    await fs.writeFile(CACHE_FILE, JSON.stringify(cacheData, null, 2));
+    await fs.writeFile(getCacheFile(appId), JSON.stringify(cacheData, null, 2));
   } catch (error) {
     console.error('Error saving cache:', error);
   }
 }
 
 // Incremental fetch with streaming processing
-async function fetchLogsIncremental(sinceDate, untilDate, onProgress) {
+async function fetchLogsIncremental(sinceDate, untilDate, appId, onProgress) {
   const metrics = {
     dailyMetrics: {},
     uniqueUsers: new Set(),
@@ -123,6 +130,9 @@ async function fetchLogsIncremental(sinceDate, untilDate, onProgress) {
   
   try {
     let url = `${process.env.OKTA_ORG_URL}/api/v1/logs?since=${sinceDate}&until=${untilDate}&limit=1000`;
+    if (appId && appId !== 'all') {
+      url += `&filter=${encodeURIComponent(`target.id eq "${appId}"`)}`;
+    }
     
     while (url) {
       try {
@@ -541,10 +551,16 @@ app.get('/api/userinfo', requireAuth, (req, res) => {
   });
 });
 
+// API endpoint to list configured applications
+app.get('/api/apps', requireAuth, (req, res) => {
+  res.json({ apps: OKTA_APPS });
+});
+
 // API endpoint to fetch cached metrics
 app.get('/api/cached-metrics', requireAuth, async (req, res) => {
+  const appId = req.query.appId || 'all';
   try {
-    const cache = await loadCache();
+    const cache = await loadCache(appId);
     if (cache) {
       res.json({
         success: true,
@@ -571,6 +587,8 @@ app.get('/api/cached-metrics', requireAuth, async (req, res) => {
 
 // API endpoint to fetch and calculate metrics with progress
 app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
+  const appId = req.body.appId || 'all';
+
   // Prevent concurrent processing
   if (progressData.isProcessing) {
     return res.status(429).json({
@@ -581,6 +599,7 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
 
   progressData = {
     isProcessing: true,
+    appId,
     totalLogs: 0,
     processedLogs: 0,
     currentPage: 0,
@@ -603,17 +622,17 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
     const sinceDate = thirtyOneDaysAgo.toISOString();
     const untilDate = now.toISOString();
 
-    console.log(`Starting incremental fetch from ${sinceDate} to ${untilDate}`);
-    
+    console.log(`Starting incremental fetch from ${sinceDate} to ${untilDate} (appId: ${appId})`);
+
     const { metrics: metricsData, totalProcessed } = await fetchLogsIncremental(
-      sinceDate, 
+      sinceDate,
       untilDate,
+      appId,
       (progress) => {
         progressData.processedLogs = progress.processedLogs;
         progressData.currentPage = progress.currentPage;
-        progressData.totalLogs = progress.processedLogs; // Update as we go
-        
-        // Estimate time remaining
+        progressData.totalLogs = progress.processedLogs;
+
         const elapsed = Date.now() - progressData.startTime;
         progressData.estimatedTime = elapsed;
       }
@@ -624,7 +643,7 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
     const finalMetrics = calculateFinalMetrics(metricsData);
 
     // Save to cache
-    await saveCache(finalMetrics, totalProcessed);
+    await saveCache(finalMetrics, totalProcessed, appId);
 
     progressData.isProcessing = false;
     progressData.totalLogs = totalProcessed;
@@ -638,8 +657,9 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
 
 // API endpoint to clear cache
 app.post('/api/clear-cache', requireAuth, async (req, res) => {
+  const appId = req.body.appId || 'all';
   try {
-    await fs.unlink(CACHE_FILE);
+    await fs.unlink(getCacheFile(appId));
     res.json({ success: true, message: 'Cache cleared' });
   } catch (error) {
     res.json({ success: true, message: 'No cache to clear' });

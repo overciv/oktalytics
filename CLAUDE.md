@@ -26,7 +26,10 @@ POST_LOGOUT_REDIRECT_URI=http://localhost:3000
 SESSION_SECRET=your-random-secret-key
 PORT=3000
 NODE_ENV=development
+OKTA_APPS=[{"name":"Salesforce","id":"0oa..."},{"name":"Office 365","id":"0oa..."}]
 ```
+
+`OKTA_APPS` is optional. When set, a dropdown appears in the dashboard allowing metrics to be scoped per application. Each entry needs a display `name` and an Okta application `id` (the `0oa...` client ID visible in the Okta Admin Console). Omitting this variable (or leaving it empty) shows only the "All Apps" scope.
 
 ## Architecture
 
@@ -53,16 +56,17 @@ This is a single-file Node.js/Express application (`server.js`) that reads Okta 
 - FastPass detection uses `debugContext.debugData.behaviors` containing `"New Device=NEGATIVE"` or `"SIGNED_NONCE"`
 - Biometric detection uses `debugContext.debugData.keyTypeUsedForAuthentication === "USER_VERIFYING_BIO_OR_PIN"`
 
-**Cache:** `./cache/metrics-cache.json` — a flat JSON file with `{ metrics, logsProcessed, timestamp }`. The directory is auto-created on first write. Cache age is checked on every `GET /api/cached-metrics` call.
+**Cache:** One JSON file per scope: `./cache/metrics-all.json` for "All Apps", `./cache/metrics-app-{appId}.json` per application. Each file holds `{ metrics, logsProcessed, timestamp }`. The directory is auto-created on first write. Cache age is checked on every `GET /api/cached-metrics` call.
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/cached-metrics` | Return cached metrics (if valid) |
-| POST | `/api/fetch-metrics` | Trigger background log processing |
+| GET | `/api/apps` | Return configured app list from `OKTA_APPS` |
+| GET | `/api/cached-metrics?appId=` | Return cached metrics for scope (`all` or app ID) |
+| POST | `/api/fetch-metrics` | Trigger background log processing (`{ appId }` in body) |
 | GET | `/api/progress` | Poll processing progress |
-| POST | `/api/clear-cache` | Delete cache file |
+| POST | `/api/clear-cache` | Delete cache file (`{ appId }` in body) |
 | GET | `/api/userinfo` | Return logged-in user's name/email |
 | GET | `/dashboard` | Serve `public/dashboard.html` |
 | GET | `/logout` | Okta Single Logout (SLO) |

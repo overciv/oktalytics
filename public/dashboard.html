@@ -122,6 +122,33 @@
             color: #0062a3;
         }
 
+        .app-selector {
+            background: #ffffff;
+            color: #1d1d1f;
+            border: 2px solid #e5e5e5;
+            padding: 14px 20px;
+            font-size: 17px;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s ease;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236e6e73' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            padding-right: 40px;
+        }
+
+        .app-selector:focus {
+            outline: none;
+            border-color: #007dc1;
+        }
+
+        #appSelectorWrapper {
+            display: none;
+        }
+
         .cache-info {
             text-align: center;
             color: #1d1d1f;
@@ -346,6 +373,11 @@
         <div id="cacheInfo" class="cache-info" style="display: none;"></div>
 
         <div class="controls">
+            <span id="appSelectorWrapper">
+                <select id="appSelector" class="app-selector" onchange="onAppChange()">
+                    <option value="all">All Apps</option>
+                </select>
+            </span>
             <button id="loadCacheBtn" onclick="loadCachedData()">Load Cached Data</button>
             <button id="fetchBtn" onclick="fetchMetrics()">Refresh Data</button>
             <button id="clearCacheBtn" class="secondary-btn" onclick="clearCache()">Clear Cache</button>
@@ -566,12 +598,43 @@
         let fastPassEnrollmentsChart, fastPassUsersChart, fastPassDevicesChart, biometricUsersChart;
         let emailDeliveryChart, emailFailureBreakdownChart;
         let progressInterval;
+        let selectedAppId = 'all';
 
         // Load cached data on page load
         window.addEventListener('load', () => {
             loadUserInfo();
-            checkCacheStatus();
+            loadApps();
         });
+
+        async function loadApps() {
+            try {
+                const response = await fetch('/api/apps');
+                const data = await response.json();
+
+                const selector = document.getElementById('appSelector');
+                const wrapper = document.getElementById('appSelectorWrapper');
+
+                if (data.apps && data.apps.length > 0) {
+                    data.apps.forEach(app => {
+                        const option = document.createElement('option');
+                        option.value = app.id;
+                        option.textContent = app.name;
+                        selector.appendChild(option);
+                    });
+                    wrapper.style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error('Error loading apps:', error);
+            }
+            checkCacheStatus();
+        }
+
+        function onAppChange() {
+            selectedAppId = document.getElementById('appSelector').value;
+            document.getElementById('metricsContainer').style.display = 'none';
+            document.getElementById('cacheInfo').style.display = 'none';
+            checkCacheStatus();
+        }
 
         async function loadUserInfo() {
             try {
@@ -601,7 +664,7 @@
 
         async function checkCacheStatus() {
             try {
-                const response = await fetch('/api/cached-metrics');
+                const response = await fetch(`/api/cached-metrics?appId=${selectedAppId}`);
                 const data = await response.json();
 
                 if (data.success && data.cached) {
@@ -619,7 +682,7 @@
 
         async function loadCachedData() {
             try {
-                const response = await fetch('/api/cached-metrics');
+                const response = await fetch(`/api/cached-metrics?appId=${selectedAppId}`);
                 const data = await response.json();
 
                 if (data.success && data.cached) {
@@ -653,7 +716,8 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({ appId: selectedAppId })
                 });
 
                 const data = await response.json();
@@ -719,7 +783,9 @@
 
             try {
                 const response = await fetch('/api/clear-cache', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ appId: selectedAppId })
                 });
 
                 const data = await response.json();
