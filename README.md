@@ -1,185 +1,143 @@
-# Okta Authentication Analytics Dashboard - Optimized for Large Datasets
+# Okta Authentication Analytics Dashboard
 
-A high-performance Node.js web application that displays comprehensive authentication analytics from Okta System Logs, optimized for organizations with millions of users.
-
-## 🚀 Performance Optimizations
-
-### 1. **Streaming Processing**
-- Logs are processed incrementally as they're fetched (no need to store all logs in memory)
-- Reduces memory footprint from GB to MB
-- Processes batches of 1000 logs at a time
-
-### 2. **Caching System**
-- Results are cached for 1 hour to avoid repeated API calls
-- Cache stored in local file system (`./cache/metrics-cache.json`)
-- Load cached data instantly without waiting
-
-### 3. **Background Processing**
-- Initial request returns immediately
-- Processing happens in the background
-- Real-time progress updates via polling
-
-### 4. **Real-time Progress Tracking**
-- Live updates on logs processed
-- Page counter
-- Elapsed time display
-- No need to wait blindly
-
-### 5. **Optimized Data Structures**
-- Only essential transaction data stored
-- Sets used for unique counting (memory efficient)
-- Minimal object creation during processing
+A Node.js/Express web application that reads 31 days of Okta System Logs and displays authentication analytics on a protected dashboard. Access requires logging in with an Okta account.
 
 ## Features
 
-- **7 Key Metrics**: Unique users, successful logins, failed passwords, failed MFA, MFA abandonments, inactive users, avg auth time
-- **6 Interactive Charts**: Daily trends for all metrics
-- **Smart Caching**: 1-hour cache with manual refresh option
-- **Progress Tracking**: Real-time updates during data processing
-- **Rate Limiting**: Automatic handling with exponential backoff
-- **Pagination**: Efficient handling of large log datasets
+- **Authentication overview** — unique users, successful logins, failed passwords, failed MFA, MFA abandonments, inactive users, avg auth time
+- **FastPass metrics** — enrollments, users, devices, authentications
+- **Biometric usage** — adoption rates
+- **Email delivery** — success, failure, bounced, spam, dropped, unsubscribed
+- **Per-app scoping** — optional dropdown to scope all metrics to a specific application
+- **Single fetch, all scopes** — refreshing "All Apps" calculates metrics for every configured app in one Okta API pass
+- **Foldable sections** — each metric category is collapsible; Expand All / Fold All controls
+- **Smart caching** — 1-hour cache per scope, auto-loaded on page load and app switch
+- **Streaming processing** — logs processed page-by-page as they arrive (constant memory usage)
+- **Rate limit handling** — automatic retry with backoff on 429 responses
 
-## Performance Benchmarks
+## Prerequisites
 
-For a typical Okta tenant:
-- **Small org** (1K-10K users): ~30 seconds
-- **Medium org** (10K-100K users): ~2-5 minutes
-- **Large org** (100K-1M users): ~5-15 minutes
-- **Enterprise** (1M+ users): ~15-30 minutes
-
-*Times vary based on API rate limits and log volume*
+- Node.js v14+
+- An Okta tenant with API access
+- An Okta OIDC application (for dashboard login)
 
 ## Installation
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
-2. Create `.env` file:
-   ```
-   OKTA_ORG_URL=https://your-domain.okta.com
-   OKTA_API_TOKEN=your-api-token-here
-   PORT=3000
-   ```
+## Configuration
 
-3. Start the server:
-   ```bash
-   npm start
-   ```
+Create a `.env` file at the project root:
+
+```
+# Okta tenant
+OKTA_ORG_URL=https://your-domain.okta.com
+OKTA_API_TOKEN=your-api-token-here
+
+# OIDC app credentials (for dashboard login)
+OKTA_CLIENT_ID=your-client-id
+OKTA_CLIENT_SECRET=your-client-secret
+APP_BASE_URL=http://localhost:3000
+REDIRECT_URI=http://localhost:3000/authorization-code/callback
+POST_LOGOUT_REDIRECT_URI=http://localhost:3000
+SESSION_SECRET=your-random-secret-key
+
+PORT=3000
+NODE_ENV=development
+
+# Optional: scope metrics per application
+# OKTA_APPS=[{"name":"Salesforce","id":"0oa..."},{"name":"Office 365","id":"0oa..."}]
+OKTA_APPS=
+```
+
+### Setting up the OIDC application in Okta
+
+1. In the Okta Admin Console, go to **Applications → Create App Integration**
+2. Choose **OIDC - OpenID Connect** → **Web Application**
+3. Set Sign-in redirect URI to `http://localhost:3000/authorization-code/callback`
+4. Set Sign-out redirect URI to `http://localhost:3000`
+5. Copy the **Client ID** and **Client Secret** into `.env`
+
+### Getting an API token
+
+In the Okta Admin Console, go to **Security → API → Tokens → Create Token**. Copy the token into `OKTA_API_TOKEN`.
+
+### Configuring per-app scoping (optional)
+
+Set `OKTA_APPS` to a JSON array of `{"name", "id"}` pairs. The `id` is the application's instance ID (the `0oa…` value in the URL when viewing the app in the Okta Admin Console).
+
+To find the correct IDs from your actual system logs, use the diagnostic endpoint after starting the server:
+
+```
+GET /api/debug/app-targets
+```
+
+This scans the last 7 days of logs and returns all `AppInstance` target IDs found, flagging which ones match your current `.env`.
+
+## Running
+
+```bash
+npm start        # production
+npm run dev      # development (nodemon, auto-restarts on source changes)
+```
+
+Navigate to `http://localhost:3000`. You will be redirected to Okta to log in.
 
 ## Usage
 
-### First Time Use
-1. Navigate to `http://localhost:3000`
-2. Click "Refresh Data" to start processing
-3. Monitor real-time progress
-4. Data will display automatically when complete
+### First run
+1. Select a scope from the dropdown (if apps are configured), or leave it on **All Apps**
+2. Click **Refresh Data** — processing runs in the background
+3. Progress (logs processed, pages fetched, elapsed time) updates every second
+4. Metrics and charts display automatically when complete
 
-### Subsequent Uses
-1. Click "Load Cached Data" for instant results
-2. Cache is valid for 1 hour
-3. Click "Refresh Data" to update with latest logs
+When **All Apps** is refreshed and `OKTA_APPS` is configured, metrics for every app are calculated in the same fetch. Switching the selector after that is instant.
 
-### API Endpoints
+### Subsequent visits
+Cached data for the selected scope loads automatically. The cache banner shows the age and a Refresh link.
 
-- `GET /api/cached-metrics` - Retrieve cached metrics
-- `POST /api/fetch-metrics` - Start background processing
-- `GET /api/progress` - Get real-time progress updates
-- `POST /api/clear-cache` - Clear cached data
+### Cache management
+- **Clear Cache** on **All Apps** deletes all scope caches at once
+- Cache expires after 1 hour; stale cache is not served
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/apps` | Configured app list from `OKTA_APPS` |
+| GET | `/api/cached-metrics?appId=` | Cached metrics for a scope (`all` or app ID) |
+| POST | `/api/fetch-metrics` | Start background processing (`{ appId }` in body) |
+| GET | `/api/progress` | Real-time processing progress |
+| POST | `/api/clear-cache` | Delete cache (`{ appId }` in body; `all` clears everything) |
+| GET | `/api/userinfo` | Logged-in user name and email |
+| GET | `/api/debug/app-targets` | App IDs found in the last 7 days of logs |
 
 ## Architecture
 
+All application logic lives in `server.js`. The frontend is `public/dashboard.html` (self-contained, Chart.js from CDN).
+
 ```
-┌─────────────────────────────────────────────────┐
-│  Frontend (Auto-polling for progress)          │
-└─────────────────┬───────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────────┐
-│  Express Server                                  │
-│  - Background processing                         │
-│  - Progress tracking                             │
-│  - Cache management                              │
-└─────────────────┬───────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────────┐
-│  Okta System Logs API                           │
-│  - Paginated fetching (1000/page)               │
-│  - Rate limit handling                           │
-│  - Streaming processing                          │
-└──────────────────────────────────────────────────┘
+Browser → Okta OIDC login → /dashboard
+                                │
+                POST /api/fetch-metrics
+                                │
+                fetchLogsIncremental()   ← one Okta API fetch for all scopes
+                        │
+                processLogsBatch()       ← in-memory filter per scope per page
+                        │
+                calculateFinalMetrics()
+                        │
+                saveCache()              ← ./cache/metrics-{scope}.json per scope
 ```
 
-## Optimization Tips
-
-### For Very Large Datasets
-
-1. **Run during off-peak hours**: Lower API contention
-2. **Increase cache duration**: Modify `CACHE_DURATION` in server.js
-3. **Reduce date range**: Change from 31 days to 7 or 14 days
-4. **Schedule automated runs**: Use cron to refresh cache periodically
-
-### Memory Management
-
-The application uses streaming processing, so memory usage should remain constant regardless of log volume:
-- **Base memory**: ~50-100 MB
-- **Per-request overhead**: ~10-20 MB
-- **Cache storage**: ~1-5 MB per cached result
-
-### API Rate Limits
-
-Okta API rate limits:
-- **System Logs API**: 120 requests per minute
-- **Rate limit handling**: Automatic retry with backoff
-- **Optimization**: 100ms delay between requests (prevents hitting limits)
-
-## Monitoring
-
-Server logs provide real-time information:
-```bash
-npm start
-# Watch console for:
-# - Pages fetched
-# - Logs processed
-# - Rate limit notices
-# - Processing completion
-```
+Cache files: `./cache/metrics-all.json` for All Apps, `./cache/metrics-app-{id}.json` per application.
 
 ## Troubleshooting
 
-### Processing Takes Too Long
-- Check API rate limits in Okta admin
-- Verify network connectivity
-- Consider reducing date range
+**Login loop / OIDC errors** — verify `OKTA_CLIENT_ID`, `OKTA_CLIENT_SECRET`, `REDIRECT_URI`, and `APP_BASE_URL` match the Okta application configuration exactly.
 
-### Out of Memory Errors
-- Shouldn't happen with streaming processing
-- If it does, check Node.js version (requires v14+)
-- Increase Node memory: `node --max-old-space-size=4096 server.js`
+**All metrics show 0 for an app** — the app may not have authentication events in the last 31 days, or the ID in `OKTA_APPS` may be wrong. Use `/api/debug/app-targets` to verify the correct ID.
 
-### Cache Not Working
-- Check `./cache` directory exists and is writable
-- Verify disk space available
-- Check server logs for cache errors
-
-## Security
-
-- Never commit `.env` file
-- Rotate API tokens regularly
-- Consider adding authentication to the dashboard
-- Use HTTPS in production
-- Implement IP whitelisting if needed
-
-## Future Enhancements
-
-- [ ] PostgreSQL/Redis for caching (multi-instance support)
-- [ ] Incremental updates (only fetch new logs since last run)
-- [ ] WebSocket for progress updates (instead of polling)
-- [ ] Export to CSV/PDF
-- [ ] Alerting system for anomalies
-- [ ] Multi-tenant support
-- [ ] Historical comparison
-
-## License
-
-MIT
+**Processing takes a long time** — expected for large tenants. Increase `CACHE_DURATION` in `server.js` to reduce how often a full fetch is needed.
