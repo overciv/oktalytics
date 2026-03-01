@@ -744,14 +744,14 @@
             } catch (error) {
                 console.error('Error loading apps:', error);
             }
-            checkCacheStatus();
+            loadCachedData();
         }
 
         function onAppChange() {
             selectedAppId = document.getElementById('appSelector').value;
             document.getElementById('metricsContainer').style.display = 'none';
             document.getElementById('cacheInfo').style.display = 'none';
-            checkCacheStatus();
+            loadCachedData();
         }
 
         async function loadUserInfo() {
@@ -780,25 +780,12 @@
             window.location.href = '/logout';
         }
 
-        async function checkCacheStatus() {
-            try {
-                const response = await fetch(`/api/cached-metrics?appId=${selectedAppId}`);
-                const data = await response.json();
-
-                if (data.success && data.cached) {
-                    const cacheInfo = document.getElementById('cacheInfo');
-                    cacheInfo.style.display = 'block';
-                    cacheInfo.innerHTML = `
-                        📊 Cached data available (${data.cacheAge} minutes old). 
-                        <a href="#" onclick="loadCachedData(); return false;">Load it now</a> or refresh for latest data.
-                    `;
-                }
-            } catch (error) {
-                console.error('Error checking cache:', error);
-            }
-        }
-
         async function loadCachedData() {
+            const cacheInfo = document.getElementById('cacheInfo');
+            cacheInfo.style.display = 'block';
+            cacheInfo.style.background = '#f5f5f7';
+            cacheInfo.style.borderColor = '#e5e5e5';
+
             try {
                 const response = await fetch(`/api/cached-metrics?appId=${selectedAppId}`);
                 const data = await response.json();
@@ -806,17 +793,18 @@
                 if (data.success && data.cached) {
                     displayMetrics(data.metrics, data.logsProcessed, data.timestamp);
                     document.getElementById('metricsContainer').style.display = 'block';
-                    
-                    const cacheInfo = document.getElementById('cacheInfo');
-                    cacheInfo.innerHTML = `✓ Showing cached data (${data.cacheAge} minutes old)`;
+                    cacheInfo.innerHTML = `Showing cached data (${data.cacheAge} minutes old) &mdash; <a href="#" onclick="fetchMetrics(); return false;">Refresh</a> for latest.`;
                     cacheInfo.style.background = '#e8f5e9';
                     cacheInfo.style.borderColor = '#c8e6c9';
                 } else {
-                    alert('No cached data available. Please refresh the data.');
+                    const selector = document.getElementById('appSelector');
+                    const appName = selector.options[selector.selectedIndex].text;
+                    cacheInfo.innerHTML = `No cached data for <strong>${appName}</strong> &mdash; click <strong>Refresh Data</strong> to fetch.`;
+                    document.getElementById('metricsContainer').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error loading cache:', error);
-                alert('Failed to load cached data: ' + error.message);
+                cacheInfo.innerHTML = 'Failed to load cached data.';
             }
         }
 
@@ -906,11 +894,9 @@
                     body: JSON.stringify({ appId: selectedAppId })
                 });
 
-                const data = await response.json();
-                alert(data.message);
-                
-                document.getElementById('cacheInfo').style.display = 'none';
+                await response.json();
                 document.getElementById('metricsContainer').style.display = 'none';
+                await loadCachedData();
             } catch (error) {
                 console.error('Error clearing cache:', error);
                 alert('Failed to clear cache: ' + error.message);
