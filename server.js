@@ -10,7 +10,7 @@ const fs = require('fs').promises;
 const PORT = process.env.PORT || 3000;
 
 // Cache configuration
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
+const CACHE_DURATION = (parseInt(process.env.CACHE_DURATION_HOURS) || 1) * 60 * 60 * 1000;
 
 function getCacheFile(appId) {
   if (!appId || appId === 'all') return './cache/metrics-all.json';
@@ -564,6 +564,24 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
+// Check whether the logged-in user carries the admin_access role claim
+function isAdmin(req) {
+  const roles = req.userContext?.userinfo?.roles;
+  if (!roles) return false;
+  if (Array.isArray(roles)) return roles.includes('admin_access');
+  if (typeof roles === 'string') {
+    return roles.split(',').map(r => r.trim()).includes('admin_access');
+  }
+  return false;
+}
+
+const requireAdmin = (req, res, next) => {
+  if (!isAdmin(req)) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+  next();
+};
+
 // Authentication check before serving static files
 app.use((req, res, next) => {
   if (req.path.startsWith('/login') || 
@@ -591,7 +609,8 @@ app.get('/api/userinfo', requireAuth, (req, res) => {
   res.json({
     name: req.userContext.userinfo.name,
     email: req.userContext.userinfo.email,
-    sub: req.userContext.userinfo.sub
+    sub: req.userContext.userinfo.sub,
+    isAdmin: isAdmin(req)
   });
 });
 
@@ -665,7 +684,7 @@ app.get('/api/cached-metrics', requireAuth, async (req, res) => {
 });
 
 // API endpoint to fetch and calculate metrics with progress
-app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
+app.post('/api/fetch-metrics', requireAuth, requireAdmin, async (req, res) => {
   const appId = req.body.appId || 'all';
 
   // Prevent concurrent processing
@@ -741,7 +760,7 @@ app.post('/api/fetch-metrics', requireAuth, async (req, res) => {
 });
 
 // API endpoint to clear cache
-app.post('/api/clear-cache', requireAuth, async (req, res) => {
+app.post('/api/clear-cache', requireAuth, requireAdmin, async (req, res) => {
   const appId = req.body.appId || 'all';
   try {
     if (appId === 'all') {

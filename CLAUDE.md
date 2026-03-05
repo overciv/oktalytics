@@ -27,9 +27,12 @@ SESSION_SECRET=your-random-secret-key
 PORT=3000
 NODE_ENV=development
 OKTA_APPS=[{"name":"Salesforce","id":"0oa..."},{"name":"Office 365","id":"0oa..."}]
+CACHE_DURATION_HOURS=1
 ```
 
-`OKTA_APPS` is optional. When set, a dropdown appears in the dashboard allowing metrics to be scoped per application. Each entry needs a display `name` and an Okta application `id` (the `0oa...` client ID visible in the Okta Admin Console). Omitting this variable (or leaving it empty) shows only the "All Apps" scope.
+`OKTA_APPS` is optional. When set, a dropdown appears in the dashboard allowing metrics to be scoped per application. `CACHE_DURATION_HOURS` defaults to `1` if unset.
+
+**Role-based access:** The Refresh Data and Clear Cache actions require the user to have `admin_access` in the `roles` claim of their OIDC token. Add a custom `roles` claim to the Okta app's ID token/userinfo that returns the user's roles as a string or array. Users without `admin_access` see a read-only dashboard (no Refresh / Clear Cache buttons). Each entry needs a display `name` and an Okta application `id` (the `0oa...` client ID visible in the Okta Admin Console). Omitting this variable (or leaving it empty) shows only the "All Apps" scope.
 
 ## Architecture
 
@@ -75,7 +78,7 @@ This is a single-file Node.js/Express application (`server.js`) that reads Okta 
 
 ## Key Configuration Constants (server.js)
 
-- `CACHE_DURATION` — `60 * 60 * 1000` (1 hour); change to adjust cache TTL
+- `CACHE_DURATION` — derived from `CACHE_DURATION_HOURS` env var (defaults to 1 hour)
 - Date range for log fetch — hardcoded to 31 days back from `now` in `POST /api/fetch-metrics`
 - Request delay — `100ms` between paginated API calls (`sleep(100)`) to avoid rate limits
 - Rate limit retry — up to 5 retries with backoff based on `x-rate-limit-reset` header

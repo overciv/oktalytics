@@ -451,9 +451,8 @@
                     <option value="all">All Apps</option>
                 </select>
             </span>
-            <button id="loadCacheBtn" onclick="loadCachedData()">Load Cached Data</button>
-            <button id="fetchBtn" onclick="fetchMetrics()">Refresh Data</button>
-            <button id="clearCacheBtn" class="secondary-btn" onclick="clearCache()">Clear Cache</button>
+            <button id="fetchBtn" onclick="fetchMetrics()" style="display:none">Refresh Data</button>
+            <button id="clearCacheBtn" class="secondary-btn" onclick="clearCache()" style="display:none">Clear Cache</button>
             <button class="secondary-btn" onclick="expandAll()">Expand All</button>
             <button class="secondary-btn" onclick="foldAll()">Fold All</button>
             <button class="secondary-btn" id="toggleChartsBtn" onclick="toggleCharts()">Hide Charts</button>
@@ -732,6 +731,7 @@
             });
         }
 
+        let userIsAdmin = false;
         let chartsVisible = true;
         function toggleCharts() {
             chartsVisible = !chartsVisible;
@@ -786,9 +786,15 @@
                     return;
                 }
                 const userInfo = await response.json();
-                
+
                 document.getElementById('userName').textContent = userInfo.name || 'User';
                 document.getElementById('userEmail').textContent = userInfo.email || '';
+
+                if (userInfo.isAdmin) {
+                    userIsAdmin = true;
+                    document.getElementById('fetchBtn').style.display = '';
+                    document.getElementById('clearCacheBtn').style.display = '';
+                }
             } catch (error) {
                 console.error('Error loading user info:', error);
                 window.location.href = '/login';
@@ -817,13 +823,18 @@
                 if (data.success && data.cached) {
                     displayMetrics(data.metrics, data.logsProcessed, data.timestamp);
                     document.getElementById('metricsContainer').style.display = 'block';
-                    cacheInfo.innerHTML = `Showing cached data (${data.cacheAge} minutes old) &mdash; <a href="#" onclick="fetchMetrics(); return false;">Refresh</a> for latest.`;
+                    const refreshLink = userIsAdmin
+                        ? ` &mdash; <a href="#" onclick="fetchMetrics(); return false;">Refresh</a> for latest.`
+                        : '';
+                    cacheInfo.innerHTML = `Showing cached data (${data.cacheAge} minutes old)${refreshLink}`;
                     cacheInfo.style.background = '#e8f5e9';
                     cacheInfo.style.borderColor = '#c8e6c9';
                 } else {
                     const selector = document.getElementById('appSelector');
                     const appName = selector.options[selector.selectedIndex].text;
-                    cacheInfo.innerHTML = `No cached data for <strong>${appName}</strong> &mdash; click <strong>Refresh Data</strong> to fetch.`;
+                    cacheInfo.innerHTML = userIsAdmin
+                        ? `No cached data for <strong>${appName}</strong> &mdash; click <strong>Refresh Data</strong> to fetch.`
+                        : `No cached data available for <strong>${appName}</strong>.`;
                     document.getElementById('metricsContainer').style.display = 'none';
                 }
             } catch (error) {
