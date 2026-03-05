@@ -512,6 +512,11 @@
                             <div class="unit">second factor failures</div>
                         </div>
                         <div class="metric-card">
+                            <h3>Login Abandonments</h3>
+                            <div class="value" id="loginAbandonments">-</div>
+                            <div class="unit">dropped at password step</div>
+                        </div>
+                        <div class="metric-card">
                             <h3>MFA Abandonments</h3>
                             <div class="value" id="mfaAbandonments">-</div>
                             <div class="unit">users abandoned</div>
@@ -543,6 +548,10 @@
                         <div class="chart-wrapper">
                             <h2>Daily Failed MFA Validations Trend</h2>
                             <canvas id="failedMFAChart" class="chart-canvas"></canvas>
+                        </div>
+                        <div class="chart-wrapper">
+                            <h2>Daily Login Abandonment Trend</h2>
+                            <canvas id="loginAbandonmentsChart" class="chart-canvas"></canvas>
                         </div>
                         <div class="chart-wrapper">
                             <h2>Daily MFA Abandonment Trend</h2>
@@ -696,7 +705,7 @@
 
     <script>
         let usersChart, mfaChart, authTimeChart, successfulLoginsChart, failedPasswordsChart, failedMFAChart;
-        let fastPassEnrollmentsChart, fastPassUsersChart, fastPassDevicesChart, biometricUsersChart;
+        let loginAbandonmentsChart, fastPassEnrollmentsChart, fastPassUsersChart, fastPassDevicesChart, biometricUsersChart;
         let emailDeliveryChart, emailFailureBreakdownChart;
         let progressInterval;
         let selectedAppId = 'all';
@@ -923,6 +932,7 @@
             document.getElementById('successfulLogins').textContent = metrics.totalSuccessfulLogins.toLocaleString();
             document.getElementById('failedPasswords').textContent = metrics.totalFailedPasswords.toLocaleString();
             document.getElementById('failedMFA').textContent = metrics.totalFailedMFA.toLocaleString();
+            document.getElementById('loginAbandonments').textContent = metrics.totalLoginAbandonments.toLocaleString();
             document.getElementById('mfaAbandonments').textContent = metrics.totalMfaAbandonments.toLocaleString();
             document.getElementById('inactiveUsers').textContent = metrics.inactiveUsers.toLocaleString();
             document.getElementById('avgAuthTime').textContent = metrics.overallAvgAuthTime.toFixed(2);
@@ -966,6 +976,7 @@
             if (successfulLoginsChart) successfulLoginsChart.destroy();
             if (failedPasswordsChart) failedPasswordsChart.destroy();
             if (failedMFAChart) failedMFAChart.destroy();
+            if (loginAbandonmentsChart) loginAbandonmentsChart.destroy();
             if (mfaChart) mfaChart.destroy();
             if (authTimeChart) authTimeChart.destroy();
             if (fastPassEnrollmentsChart) fastPassEnrollmentsChart.destroy();
@@ -1071,6 +1082,23 @@
                         data: metrics.dailyData.map(d => d.failedMFA),
                         backgroundColor: '#fd7e14',
                         borderColor: '#fd7e14',
+                        borderWidth: 0,
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+
+            const loginAbandonmentsCtx = document.getElementById('loginAbandonmentsChart').getContext('2d');
+            loginAbandonmentsChart = new Chart(loginAbandonmentsCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Login Abandonments',
+                        data: metrics.dailyData.map(d => d.loginAbandonments),
+                        backgroundColor: '#e83e3e',
+                        borderColor: '#e83e3e',
                         borderWidth: 0,
                         borderRadius: 6
                     }]

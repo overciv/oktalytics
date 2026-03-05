@@ -105,6 +105,7 @@ function initializeMetrics() {
       fastPassAuthUsers: new Set(),
       fastPassDevices: new Set(),
       fastPassAuths: 0,
+      loginAbandonments: 0,
       biometricUsers: new Set(),
       emailDeliverySuccess: 0,
       emailDeliveryFailure: 0,
@@ -118,6 +119,8 @@ function initializeMetrics() {
   metrics.fastPassAuthUsers = new Set();
   metrics.fastPassDevices = new Set();
   metrics.biometricUsers = new Set();
+  // authnRequestId → { userId, dateKey } — entries removed when MFA or session follows
+  metrics.loginAttempts = new Map();
   return metrics;
 }
 
@@ -368,10 +371,28 @@ function processLogsBatch(logs, metrics, appId) {
     }
 
     // Track MFA abandonment
-    if (eventType === 'user.mfa.factor.suspend' || 
+    if (eventType === 'user.mfa.factor.suspend' ||
         eventType === 'user.authentication.auth_via_mfa' && outcome === 'FAILURE') {
       metrics.mfaAbandonments.add(userId);
       metrics.dailyMetrics[dateKey].mfaAbandonments++;
+    }
+
+    // Track login-step abandonment using authnRequestId as the flow correlation key.
+    // policy.evaluate_sign_on fires after password is accepted (ALLOW = no MFA required,
+    // CHALLENGE = MFA will be required). We record the flow as a pending attempt.
+    // It is cleared if:
+    //   - user.mfa.factor.challenge fires  → user reached MFA step (tracked separately)
+    //   - user.session.start SUCCESS fires → authentication completed
+    const authnRequestId = log.debugContext?.debugData?.authnRequestId;
+    if (authnRequestId) {
+      if (eventType === 'policy.evaluate_sign_on' &&
+          (outcome === 'ALLOW' || outcome === 'CHALLENGE') && userId) {
+        metrics.loginAttempts.set(authnRequestId, { userId, dateKey });
+      }
+      if (eventType === 'user.mfa.factor.challenge' ||
+          (eventType === 'user.session.start' && outcome === 'SUCCESS')) {
+        metrics.loginAttempts.delete(authnRequestId);
+      }
     }
 
     // Track Email Delivery
@@ -419,6 +440,13 @@ function calculateFinalMetrics(metricsData) {
     }
   });
 
+  // Attribute login-step abandonments to the day the attempt started
+  for (const { dateKey } of metricsData.loginAttempts.values()) {
+    if (metricsData.dailyMetrics[dateKey]) {
+      metricsData.dailyMetrics[dateKey].loginAbandonments++;
+    }
+  }
+
   // Calculate inactive users
   const threeMonthsAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
   const inactiveUsers = Object.values(metricsData.userLastActivity).filter(
@@ -431,6 +459,7 @@ function calculateFinalMetrics(metricsData) {
     .map(date => ({
       date,
       uniqueUsers: metricsData.dailyMetrics[date].uniqueUsers.size,
+      loginAbandonments: metricsData.dailyMetrics[date].loginAbandonments,
       mfaAbandonments: metricsData.dailyMetrics[date].mfaAbandonments,
       avgAuthTime: metricsData.dailyMetrics[date].authenticationTimes.length > 0
         ? metricsData.dailyMetrics[date].authenticationTimes.reduce((a, b) => a + b, 0) / 
@@ -466,6 +495,7 @@ function calculateFinalMetrics(metricsData) {
 
   return {
     totalUniqueUsers: metricsData.uniqueUsers.size,
+    totalLoginAbandonments: metricsData.loginAttempts.size,
     totalMfaAbandonments: metricsData.mfaAbandonments.size,
     overallAvgAuthTime: chartData.reduce((sum, day) => sum + day.avgAuthTime, 0) / 
                         chartData.filter(day => day.avgAuthTime > 0).length || 0,
