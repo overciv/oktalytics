@@ -605,7 +605,7 @@ app.use(session({
 const oidc = new ExpressOIDC({
   issuer: process.env.OKTA_ORG_URL,
   client_id: process.env.OKTA_CLIENT_ID,
-  client_secret: process.env.OKTA_CLIENT_SECRET || 'pkjwt',  // placeholder — pkjwt patch above is used instead
+  client_secret: 'pkjwt',  // placeholder — pkjwt patch above overrides this before it is used
   appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${PORT}`,
   redirect_uri: process.env.REDIRECT_URI || `http://localhost:${PORT}/authorization-code/callback`,
   scope: 'openid profile email okta.logs.read',
