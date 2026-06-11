@@ -1,9 +1,9 @@
 // server.js
 require('dotenv').config();
+
 const express = require('express');
 const session = require('express-session');
 const { ExpressOIDC } = require('@okta/oidc-middleware');
-const okta = require('@okta/okta-sdk-nodejs');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -20,11 +20,6 @@ function getCacheFile(appId) {
 // Configured applications for scoped metrics
 const OKTA_APPS = process.env.OKTA_APPS ? JSON.parse(process.env.OKTA_APPS) : [];
 
-// Initialize Okta Client
-const oktaClient = new okta.Client({
-  orgUrl: process.env.OKTA_ORG_URL,
-  token: process.env.OKTA_API_TOKEN
-});
 
 // Progress tracking for real-time updates
 let progressData = {
@@ -112,7 +107,8 @@ function initializeMetrics() {
       emailDropped: 0,
       emailBounced: 0,
       emailSpam: 0,
-      emailUnsubscribed: 0
+      emailUnsubscribed: 0,
+      m2mTokens: 0
     };
   }
   metrics.fastPassEnrolledUsers = new Set();
@@ -125,7 +121,7 @@ function initializeMetrics() {
 }
 
 // scopes: array of { appId, metrics } — each page is processed against all scopes in one pass
-async function fetchLogsIncremental(sinceDate, untilDate, scopes, onProgress) {
+async function fetchLogsIncremental(sinceDate, untilDate, scopes, accessToken, onProgress) {
   let totalProcessed = 0;
   let retryCount = 0;
   const maxRetries = 5;
@@ -138,7 +134,7 @@ async function fetchLogsIncremental(sinceDate, untilDate, scopes, onProgress) {
       try {
         const response = await fetch(url, {
           headers: {
-            'Authorization': `SSWS ${process.env.OKTA_API_TOKEN}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Accept': 'application/json'
           }
         });
@@ -211,10 +207,12 @@ async function fetchLogsIncremental(sinceDate, untilDate, scopes, onProgress) {
 // Process a batch of logs immediately
 function processLogsBatch(logs, metrics, appId) {
   logs.forEach(log => {
-    // When scoped to a specific app, only process events where that app appears as a target
+    // When scoped to a specific app, only process events where that app appears as a target.
+    // Exception: for M2M token grants the requesting app is the actor, not a target.
     if (appId && appId !== 'all') {
       const targets = log.target || [];
-      if (!targets.some(t => t.id === appId)) return;
+      const isM2mGrant = log.eventType === 'app.oauth2.token.grant.access_token';
+      if (!targets.some(t => t.id === appId) && !(isM2mGrant && log.actor?.id === appId)) return;
     }
 
     const dateKey = log.published.split('T')[0];
@@ -395,6 +393,13 @@ function processLogsBatch(logs, metrics, appId) {
       }
     }
 
+    // Track M2M tokens (client credentials)
+    if (eventType === 'app.oauth2.token.grant.access_token' && outcome === 'SUCCESS') {
+      if (log.debugContext?.debugData?.grantType === 'client_credentials') {
+        metrics.dailyMetrics[dateKey].m2mTokens++;
+      }
+    }
+
     // Track Email Delivery
     if (eventType === 'system.email.delivery') {
       const providerMessage = log.debugContext?.debugData?.providerMessage;
@@ -478,7 +483,8 @@ function calculateFinalMetrics(metricsData) {
       emailDropped: metricsData.dailyMetrics[date].emailDropped,
       emailBounced: metricsData.dailyMetrics[date].emailBounced,
       emailSpam: metricsData.dailyMetrics[date].emailSpam,
-      emailUnsubscribed: metricsData.dailyMetrics[date].emailUnsubscribed
+      emailUnsubscribed: metricsData.dailyMetrics[date].emailUnsubscribed,
+      m2mTokens: metricsData.dailyMetrics[date].m2mTokens
     }));
 
   const totalFailedPasswords = chartData.reduce((sum, day) => sum + day.failedPasswords, 0);
@@ -492,6 +498,7 @@ function calculateFinalMetrics(metricsData) {
   const totalEmailBounced = chartData.reduce((sum, day) => sum + day.emailBounced, 0);
   const totalEmailSpam = chartData.reduce((sum, day) => sum + day.emailSpam, 0);
   const totalEmailUnsubscribed = chartData.reduce((sum, day) => sum + day.emailUnsubscribed, 0);
+  const totalM2mTokens = chartData.reduce((sum, day) => sum + day.m2mTokens, 0);
 
   return {
     totalUniqueUsers: metricsData.uniqueUsers.size,
@@ -514,6 +521,7 @@ function calculateFinalMetrics(metricsData) {
     totalEmailBounced,
     totalEmailSpam,
     totalEmailUnsubscribed,
+    totalM2mTokens,
     dailyData: chartData
   };
 }
@@ -533,14 +541,74 @@ app.use(session({
   }
 }));
 
+// Patch @okta/oidc-middleware to use private_key_jwt instead of client_secret.
+// Two overrides are needed:
+// 1. createClient — builds the openid-client Client with pkjwt instead of client_secret
+// 2. bootstrapPassportStrategy — injects clientAssertionPayload so the aud claim in the
+//    JWT assertion is set to the token endpoint URL (openid-client defaults to issuer.issuer,
+//    but Okta requires the exact token endpoint URL as audience)
+{
+  const { Issuer, custom } = require('openid-client');
+  const oidcUtil = require('@okta/oidc-middleware/src/oidcUtil');
+  const { createPrivateKey } = require('crypto');
+
+  oidcUtil.createClient = async (context) => {
+    const { issuer, client_id, loginRedirectUri: redirect_uri, maxClockSkew, timeout } = context.options;
+
+    const pem = await fs.readFile(process.env.OKTA_PRIVATE_KEY_PATH, 'utf8');
+    const jwk = createPrivateKey(pem).export({ format: 'jwk' });
+    jwk.kid = process.env.OKTA_PRIVATE_KEY_ID;
+
+    Issuer[custom.http_options] = (_, opts) => { opts.timeout = timeout || 10000; return opts; };
+
+    const iss = await Issuer.discover(`${issuer}/.well-known/openid-configuration`);
+    const client = new iss.Client(
+      {
+        client_id,
+        token_endpoint_auth_method: 'private_key_jwt',
+        token_endpoint_auth_signing_alg: 'RS256',
+        redirect_uris: [redirect_uri],
+      },
+      { keys: [jwk] }
+    );
+
+    client[custom.http_options] = (opts) => { opts.timeout = timeout || 10000; return opts; };
+    client[custom.clock_tolerance] = maxClockSkew;
+    return client;
+  };
+
+  // Replace bootstrapPassportStrategy to inject extras.clientAssertionPayload.
+  // openid-client defaults aud to issuer.issuer but Okta requires the token endpoint URL.
+  const passport = require('passport');
+  const OpenIdClientStrategy = require('openid-client').Strategy;
+  oidcUtil.bootstrapPassportStrategy = (context) => {
+    const tokenEndpoint = context.client?.issuer?.token_endpoint;
+    const oidcStrategy = new OpenIdClientStrategy({
+      params: { scope: context.options.scope },
+      sessionKey: context.options.sessionKey,
+      client: context.client,
+      usePKCE: false,
+      extras: tokenEndpoint ? { clientAssertionPayload: { aud: tokenEndpoint } } : {},
+    }, (tokenSet, callbackArg1, callbackArg2) => {
+      const done = typeof callbackArg2 !== 'undefined' ? callbackArg2 : callbackArg1;
+      const userinfo = typeof callbackArg2 !== 'undefined' ? callbackArg1 : undefined;
+      if (!tokenSet) return done(null);
+      return done(null, userinfo ? { userinfo, tokens: tokenSet } : { tokens: tokenSet });
+    });
+    passport.serializeUser((user, done) => done(null, user));
+    passport.deserializeUser((user, done) => done(null, user));
+    passport.use('oidc', oidcStrategy);
+  };
+}
+
 // OIDC configuration
 const oidc = new ExpressOIDC({
-  issuer: `${process.env.OKTA_ORG_URL}/oauth2/default`,
+  issuer: process.env.OKTA_ORG_URL,
   client_id: process.env.OKTA_CLIENT_ID,
-  client_secret: process.env.OKTA_CLIENT_SECRET,
+  client_secret: process.env.OKTA_CLIENT_SECRET || 'pkjwt',  // placeholder — pkjwt patch above is used instead
   appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${PORT}`,
   redirect_uri: process.env.REDIRECT_URI || `http://localhost:${PORT}/authorization-code/callback`,
-  scope: 'openid profile email',
+  scope: 'openid profile email okta.logs.read',
   routes: {
     login: {
       path: '/login'
@@ -626,7 +694,7 @@ app.get('/api/debug/app-targets', requireAuth, async (req, res) => {
     const url = `${process.env.OKTA_ORG_URL}/api/v1/logs?since=${since}&limit=1000`;
     const response = await fetch(url, {
       headers: {
-        'Authorization': `SSWS ${process.env.OKTA_API_TOKEN}`,
+        'Authorization': `Bearer ${req.userContext.tokens.access_token}`,
         'Accept': 'application/json'
       }
     });
@@ -705,6 +773,9 @@ app.post('/api/fetch-metrics', requireAuth, requireAdmin, async (req, res) => {
     startTime: Date.now()
   };
 
+  // Capture the user's access token before sending the response (req is not available later)
+  const accessToken = req.userContext.tokens.access_token;
+
   // Send immediate response
   res.json({
     success: true,
@@ -733,6 +804,7 @@ app.post('/api/fetch-metrics', requireAuth, requireAdmin, async (req, res) => {
       sinceDate,
       untilDate,
       scopes,
+      accessToken,
       (progress) => {
         progressData.processedLogs = progress.processedLogs;
         progressData.currentPage = progress.currentPage;
@@ -804,7 +876,7 @@ app.get('/logout', (req, res) => {
       
       // Redirect to Okta logout endpoint for Single Logout
       if (idToken) {
-        const logoutUrl = `${process.env.OKTA_ORG_URL}/oauth2/default/v1/logout?` +
+        const logoutUrl = `${process.env.OKTA_ORG_URL}/oauth2/v1/logout?` +
           `id_token_hint=${idToken}&` +
           `post_logout_redirect_uri=${encodeURIComponent(process.env.POST_LOGOUT_REDIRECT_URI || `http://localhost:${PORT}`)}`;
         res.redirect(logoutUrl);
@@ -865,11 +937,13 @@ oidc.on('error', (err) => {
 /*
 # Okta Organization Settings
 OKTA_ORG_URL=https://your-domain.okta.com
-OKTA_API_TOKEN=your-api-token-here
 
-# OIDC Settings
+# Private key JWT (used for OIDC user login authentication)
+OKTA_PRIVATE_KEY_PATH=./keys/private.pem
+OKTA_PRIVATE_KEY_ID=my-key-id
+
+# OIDC Settings (user login app — also uses private_key_jwt; OKTA_CLIENT_SECRET is no longer needed)
 OKTA_CLIENT_ID=your-client-id
-OKTA_CLIENT_SECRET=your-client-secret
 APP_BASE_URL=http://localhost:3000
 REDIRECT_URI=http://localhost:3000/authorization-code/callback
 POST_LOGOUT_REDIRECT_URI=http://localhost:3000

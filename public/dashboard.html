@@ -456,6 +456,8 @@
             <button class="secondary-btn" onclick="expandAll()">Expand All</button>
             <button class="secondary-btn" onclick="foldAll()">Fold All</button>
             <button class="secondary-btn" id="toggleChartsBtn" onclick="toggleCharts()">Hide Charts</button>
+            <button id="periodDailyBtn" onclick="setPeriod('daily')">Daily</button>
+            <button class="secondary-btn" id="periodMonthlyBtn" onclick="setPeriod('monthly')">Monthly</button>
         </div>
 
         <div id="progressContainer" class="progress-container">
@@ -695,6 +697,29 @@
                 </div>
             </div>
 
+            <!-- M2M Token Usage -->
+            <div class="metrics-section">
+                <div class="section-header" onclick="toggleSection('m2m')">
+                    <h2>&#128272; M2M Token Usage</h2>
+                    <button class="section-chevron" id="section-m2m-chevron">&#8964;</button>
+                </div>
+                <div class="section-content" id="section-m2m-content">
+                    <div class="metrics-summary">
+                        <div class="metric-card">
+                            <h3>Total M2M Tokens</h3>
+                            <div class="value" id="totalM2mTokens">-</div>
+                            <div class="unit">client credentials grants (31 days)</div>
+                        </div>
+                    </div>
+                    <div class="charts-container">
+                        <div class="chart-wrapper">
+                            <h2>M2M Token Grants Over Time</h2>
+                            <canvas id="m2mChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="info">
                 <p><strong>Last updated:</strong> <span id="lastUpdated">-</span></p>
                 <p><strong>Logs processed:</strong> <span id="logsProcessed">-</span></p>
@@ -705,10 +730,29 @@
     <script>
         let usersChart, mfaChart, authTimeChart, successfulLoginsChart, failedPasswordsChart, failedMFAChart;
         let loginAbandonmentsChart, fastPassEnrollmentsChart, fastPassUsersChart, fastPassDevicesChart, biometricUsersChart;
-        let emailDeliveryChart, emailFailureBreakdownChart;
+        let emailDeliveryChart, emailFailureBreakdownChart, m2mChart;
         let progressInterval;
         let selectedAppId = 'all';
-        const SECTIONS = ['auth', 'fastpass', 'biometric', 'email'];
+        let currentPeriod = 'daily';
+        let currentDailyData = null;
+        const SECTIONS = ['auth', 'fastpass', 'biometric', 'email', 'm2m'];
+
+        const baseChartOptions = {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#e5e5e5' },
+                    ticks: { color: '#6e6e73' }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#6e6e73' }
+                }
+            }
+        };
 
         function toggleSection(id) {
             const content = document.getElementById(`section-${id}-content`);
@@ -938,47 +982,69 @@
             }
         }
 
-        function displayMetrics(metrics, logsProcessed, timestamp) {
-            document.getElementById('uniqueUsers').textContent = metrics.totalUniqueUsers.toLocaleString();
-            document.getElementById('successfulLogins').textContent = metrics.totalSuccessfulLogins.toLocaleString();
-            document.getElementById('failedPasswords').textContent = metrics.totalFailedPasswords.toLocaleString();
-            document.getElementById('failedMFA').textContent = metrics.totalFailedMFA.toLocaleString();
-            document.getElementById('loginAbandonments').textContent = metrics.totalLoginAbandonments.toLocaleString();
-            document.getElementById('mfaAbandonments').textContent = metrics.totalMfaAbandonments.toLocaleString();
-            document.getElementById('inactiveUsers').textContent = metrics.inactiveUsers.toLocaleString();
-            document.getElementById('avgAuthTime').textContent = metrics.overallAvgAuthTime.toFixed(2);
-            
-            // FastPass metrics
-            document.getElementById('fastPassEnrollments').textContent = metrics.totalFastPassEnrollments.toLocaleString();
-            document.getElementById('fastPassAuthUsers').textContent = metrics.totalFastPassAuthUsers.toLocaleString();
-            document.getElementById('fastPassDevices').textContent = metrics.totalFastPassDevices.toLocaleString();
-            document.getElementById('fastPassAuths').textContent = metrics.totalFastPassAuths.toLocaleString();
-            
-            // Biometric metrics
-            document.getElementById('biometricUsers').textContent = metrics.totalBiometricUsers.toLocaleString();
-            const biometricRate = metrics.totalFastPassAuthUsers > 0 
-                ? ((metrics.totalBiometricUsers / metrics.totalFastPassAuthUsers) * 100).toFixed(1)
-                : '0.0';
-            document.getElementById('biometricRate').textContent = biometricRate;
-            
-            // Email delivery metrics
-            document.getElementById('emailSuccess').textContent = metrics.totalEmailSuccess.toLocaleString();
-            document.getElementById('emailFailure').textContent = metrics.totalEmailFailure.toLocaleString();
-            document.getElementById('emailDropped').textContent = metrics.totalEmailDropped.toLocaleString();
-            document.getElementById('emailBounced').textContent = metrics.totalEmailBounced.toLocaleString();
-            document.getElementById('emailSpam').textContent = metrics.totalEmailSpam.toLocaleString();
-            document.getElementById('emailUnsubscribed').textContent = metrics.totalEmailUnsubscribed.toLocaleString();
-            
-            const totalEmails = metrics.totalEmailSuccess + metrics.totalEmailFailure;
-            const emailSuccessRate = totalEmails > 0 
-                ? ((metrics.totalEmailSuccess / totalEmails) * 100).toFixed(1)
-                : '0.0';
-            document.getElementById('emailSuccessRate').textContent = emailSuccessRate;
-            
-            document.getElementById('lastUpdated').textContent = new Date(timestamp).toLocaleString();
-            document.getElementById('logsProcessed').textContent = logsProcessed.toLocaleString();
+        function setPeriod(period) {
+            currentPeriod = period;
+            document.getElementById('periodDailyBtn').className = period === 'daily' ? '' : 'secondary-btn';
+            document.getElementById('periodMonthlyBtn').className = period === 'monthly' ? '' : 'secondary-btn';
+            if (currentDailyData) renderCharts(currentDailyData);
+        }
 
-            const labels = metrics.dailyData.map(d => {
+        function aggregateMonthly(dailyData) {
+            const monthly = {};
+            dailyData.forEach(d => {
+                const month = d.date.substring(0, 7);
+                if (!monthly[month]) {
+                    monthly[month] = {
+                        date: month,
+                        uniqueUsers: 0, successfulLogins: 0, failedPasswords: 0,
+                        failedMFA: 0, loginAbandonments: 0, mfaAbandonments: 0,
+                        fastPassEnrollments: 0, fastPassAuthUsers: 0, fastPassDevices: 0,
+                        fastPassAuths: 0, biometricUsers: 0,
+                        emailDeliverySuccess: 0, emailDeliveryFailure: 0, emailDropped: 0,
+                        emailBounced: 0, emailSpam: 0, emailUnsubscribed: 0,
+                        m2mTokens: 0,
+                        _authTimeDays: 0, _authTimeSum: 0
+                    };
+                }
+                const m = monthly[month];
+                m.uniqueUsers += d.uniqueUsers;
+                m.successfulLogins += d.successfulLogins;
+                m.failedPasswords += d.failedPasswords;
+                m.failedMFA += d.failedMFA;
+                m.loginAbandonments += d.loginAbandonments;
+                m.mfaAbandonments += d.mfaAbandonments;
+                m.fastPassEnrollments += d.fastPassEnrollments;
+                m.fastPassAuthUsers += d.fastPassAuthUsers;
+                m.fastPassDevices += d.fastPassDevices;
+                m.fastPassAuths += d.fastPassAuths;
+                m.biometricUsers += d.biometricUsers;
+                m.emailDeliverySuccess += d.emailDeliverySuccess;
+                m.emailDeliveryFailure += d.emailDeliveryFailure;
+                m.emailDropped += d.emailDropped;
+                m.emailBounced += d.emailBounced;
+                m.emailSpam += d.emailSpam;
+                m.emailUnsubscribed += d.emailUnsubscribed;
+                m.m2mTokens += d.m2mTokens;
+                if (d.avgAuthTime > 0) {
+                    m._authTimeDays++;
+                    m._authTimeSum += d.avgAuthTime;
+                }
+            });
+            return Object.keys(monthly).sort().map(k => ({
+                ...monthly[k],
+                avgAuthTime: monthly[k]._authTimeDays > 0
+                    ? monthly[k]._authTimeSum / monthly[k]._authTimeDays
+                    : 0
+            }));
+        }
+
+        function renderCharts(dailyData) {
+            const data = currentPeriod === 'monthly' ? aggregateMonthly(dailyData) : dailyData;
+            const labels = data.map(d => {
+                if (currentPeriod === 'monthly') {
+                    const [year, mon] = d.date.split('-');
+                    return new Date(year, mon - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                }
                 const date = new Date(d.date);
                 return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             });
@@ -996,356 +1062,277 @@
             if (biometricUsersChart) biometricUsersChart.destroy();
             if (emailDeliveryChart) emailDeliveryChart.destroy();
             if (emailFailureBreakdownChart) emailFailureBreakdownChart.destroy();
+            if (m2mChart) m2mChart.destroy();
 
-            const chartOptions = {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: '#e5e5e5'
-                        },
-                        ticks: {
-                            color: '#6e6e73'
-                        }
-                    },
-                    x: {
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            color: '#6e6e73'
-                        }
-                    }
-                }
-            };
-
-            const usersCtx = document.getElementById('usersChart').getContext('2d');
-            usersChart = new Chart(usersCtx, {
+            usersChart = new Chart(document.getElementById('usersChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Unique Users',
-                        data: metrics.dailyData.map(d => d.uniqueUsers),
+                        data: data.map(d => d.uniqueUsers),
                         borderColor: '#007dc1',
                         backgroundColor: 'rgba(0, 125, 193, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            const successfulLoginsCtx = document.getElementById('successfulLoginsChart').getContext('2d');
-            successfulLoginsChart = new Chart(successfulLoginsCtx, {
+            successfulLoginsChart = new Chart(document.getElementById('successfulLoginsChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Successful Logins',
-                        data: metrics.dailyData.map(d => d.successfulLogins),
+                        data: data.map(d => d.successfulLogins),
                         borderColor: '#00a971',
                         backgroundColor: 'rgba(0, 169, 113, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            const failedPasswordsCtx = document.getElementById('failedPasswordsChart').getContext('2d');
-            failedPasswordsChart = new Chart(failedPasswordsCtx, {
+            failedPasswordsChart = new Chart(document.getElementById('failedPasswordsChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Failed Password Attempts',
-                        data: metrics.dailyData.map(d => d.failedPasswords),
-                        backgroundColor: '#dc3545',
-                        borderColor: '#dc3545',
-                        borderWidth: 0,
-                        borderRadius: 6
+                        data: data.map(d => d.failedPasswords),
+                        backgroundColor: '#dc3545', borderColor: '#dc3545', borderWidth: 0, borderRadius: 6
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            const failedMFACtx = document.getElementById('failedMFAChart').getContext('2d');
-            failedMFAChart = new Chart(failedMFACtx, {
+            failedMFAChart = new Chart(document.getElementById('failedMFAChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Failed MFA Validations',
-                        data: metrics.dailyData.map(d => d.failedMFA),
-                        backgroundColor: '#fd7e14',
-                        borderColor: '#fd7e14',
-                        borderWidth: 0,
-                        borderRadius: 6
+                        data: data.map(d => d.failedMFA),
+                        backgroundColor: '#fd7e14', borderColor: '#fd7e14', borderWidth: 0, borderRadius: 6
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            const loginAbandonmentsCtx = document.getElementById('loginAbandonmentsChart').getContext('2d');
-            loginAbandonmentsChart = new Chart(loginAbandonmentsCtx, {
+            loginAbandonmentsChart = new Chart(document.getElementById('loginAbandonmentsChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Login Abandonments',
-                        data: metrics.dailyData.map(d => d.loginAbandonments),
-                        backgroundColor: '#e83e3e',
-                        borderColor: '#e83e3e',
-                        borderWidth: 0,
-                        borderRadius: 6
+                        data: data.map(d => d.loginAbandonments),
+                        backgroundColor: '#e83e3e', borderColor: '#e83e3e', borderWidth: 0, borderRadius: 6
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            const mfaCtx = document.getElementById('mfaChart').getContext('2d');
-            mfaChart = new Chart(mfaCtx, {
+            mfaChart = new Chart(document.getElementById('mfaChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'MFA Abandonments',
-                        data: metrics.dailyData.map(d => d.mfaAbandonments),
-                        backgroundColor: '#6f42c1',
-                        borderColor: '#6f42c1',
-                        borderWidth: 0,
-                        borderRadius: 6
+                        data: data.map(d => d.mfaAbandonments),
+                        backgroundColor: '#6f42c1', borderColor: '#6f42c1', borderWidth: 0, borderRadius: 6
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            const authTimeCtx = document.getElementById('authTimeChart').getContext('2d');
-            authTimeChart = new Chart(authTimeCtx, {
+            authTimeChart = new Chart(document.getElementById('authTimeChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Avg Auth Time (seconds)',
-                        data: metrics.dailyData.map(d => d.avgAuthTime),
+                        data: data.map(d => d.avgAuthTime),
                         borderColor: '#17a2b8',
                         backgroundColor: 'rgba(23, 162, 184, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            // FastPass Enrollments Chart
-            const fastPassEnrollmentsCtx = document.getElementById('fastPassEnrollmentsChart').getContext('2d');
-            fastPassEnrollmentsChart = new Chart(fastPassEnrollmentsCtx, {
+            fastPassEnrollmentsChart = new Chart(document.getElementById('fastPassEnrollmentsChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'FastPass Enrollments',
-                        data: metrics.dailyData.map(d => d.fastPassEnrollments),
-                        backgroundColor: '#28a745',
-                        borderColor: '#28a745',
-                        borderWidth: 0,
-                        borderRadius: 6
+                        data: data.map(d => d.fastPassEnrollments),
+                        backgroundColor: '#28a745', borderColor: '#28a745', borderWidth: 0, borderRadius: 6
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            // FastPass Users Chart
-            const fastPassUsersCtx = document.getElementById('fastPassUsersChart').getContext('2d');
-            fastPassUsersChart = new Chart(fastPassUsersCtx, {
+            fastPassUsersChart = new Chart(document.getElementById('fastPassUsersChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Unique FastPass Users',
-                        data: metrics.dailyData.map(d => d.fastPassAuthUsers),
+                        data: data.map(d => d.fastPassAuthUsers),
                         borderColor: '#007bff',
                         backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            // FastPass Devices Chart
-            const fastPassDevicesCtx = document.getElementById('fastPassDevicesChart').getContext('2d');
-            fastPassDevicesChart = new Chart(fastPassDevicesCtx, {
+            fastPassDevicesChart = new Chart(document.getElementById('fastPassDevicesChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Unique FastPass Devices',
-                        data: metrics.dailyData.map(d => d.fastPassDevices),
+                        data: data.map(d => d.fastPassDevices),
                         borderColor: '#6c757d',
                         backgroundColor: 'rgba(108, 117, 125, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            // Biometric Users Chart
-            const biometricUsersCtx = document.getElementById('biometricUsersChart').getContext('2d');
-            biometricUsersChart = new Chart(biometricUsersCtx, {
+            biometricUsersChart = new Chart(document.getElementById('biometricUsersChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Users with Biometric Verification',
-                        data: metrics.dailyData.map(d => d.biometricUsers),
+                        data: data.map(d => d.biometricUsers),
                         borderColor: '#20c997',
                         backgroundColor: 'rgba(32, 201, 151, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5
                     }]
                 },
-                options: chartOptions
+                options: baseChartOptions
             });
 
-            // Email Delivery Chart (Success vs Failure)
-            const emailDeliveryCtx = document.getElementById('emailDeliveryChart').getContext('2d');
-            emailDeliveryChart = new Chart(emailDeliveryCtx, {
+            emailDeliveryChart = new Chart(document.getElementById('emailDeliveryChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Delivered Successfully',
-                        data: metrics.dailyData.map(d => d.emailDeliverySuccess),
-                        backgroundColor: '#28a745',
-                        borderRadius: 6
+                        data: data.map(d => d.emailDeliverySuccess),
+                        backgroundColor: '#28a745', borderRadius: 6
                     }, {
                         label: 'Delivery Failed',
-                        data: metrics.dailyData.map(d => d.emailDeliveryFailure),
-                        backgroundColor: '#dc3545',
-                        borderRadius: 6
+                        data: data.map(d => d.emailDeliveryFailure),
+                        backgroundColor: '#dc3545', borderRadius: 6
                     }]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        }
-                    },
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: { legend: { display: true, position: 'top' } },
                     scales: {
-                        y: {
-                            beginAtZero: true,
-                            stacked: false,
-                            grid: {
-                                color: '#e5e5e5'
-                            },
-                            ticks: {
-                                color: '#6e6e73'
-                            }
-                        },
-                        x: {
-                            stacked: false,
-                            grid: {
-                                display: false
-                            },
-                            ticks: {
-                                color: '#6e6e73'
-                            }
-                        }
+                        y: { beginAtZero: true, stacked: false, grid: { color: '#e5e5e5' }, ticks: { color: '#6e6e73' } },
+                        x: { stacked: false, grid: { display: false }, ticks: { color: '#6e6e73' } }
                     }
                 }
             });
 
-            // Email Failure Breakdown Chart
-            const emailFailureBreakdownCtx = document.getElementById('emailFailureBreakdownChart').getContext('2d');
-            emailFailureBreakdownChart = new Chart(emailFailureBreakdownCtx, {
+            emailFailureBreakdownChart = new Chart(document.getElementById('emailFailureBreakdownChart').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Dropped',
-                        data: metrics.dailyData.map(d => d.emailDropped),
-                        backgroundColor: '#6c757d',
-                        borderRadius: 6
+                        data: data.map(d => d.emailDropped),
+                        backgroundColor: '#6c757d', borderRadius: 6
                     }, {
                         label: 'Bounced',
-                        data: metrics.dailyData.map(d => d.emailBounced),
-                        backgroundColor: '#ffc107',
-                        borderRadius: 6
+                        data: data.map(d => d.emailBounced),
+                        backgroundColor: '#ffc107', borderRadius: 6
                     }, {
                         label: 'Spam',
-                        data: metrics.dailyData.map(d => d.emailSpam),
-                        backgroundColor: '#dc3545',
-                        borderRadius: 6
+                        data: data.map(d => d.emailSpam),
+                        backgroundColor: '#dc3545', borderRadius: 6
                     }, {
                         label: 'Unsubscribed',
-                        data: metrics.dailyData.map(d => d.emailUnsubscribed),
-                        backgroundColor: '#6f42c1',
-                        borderRadius: 6
+                        data: data.map(d => d.emailUnsubscribed),
+                        backgroundColor: '#6f42c1', borderRadius: 6
                     }]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        }
-                    },
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: { legend: { display: true, position: 'top' } },
                     scales: {
-                        y: {
-                            beginAtZero: true,
-                            stacked: true,
-                            grid: {
-                                color: '#e5e5e5'
-                            },
-                            ticks: {
-                                color: '#6e6e73'
-                            }
-                        },
-                        x: {
-                            stacked: true,
-                            grid: {
-                                display: false
-                            },
-                            ticks: {
-                                color: '#6e6e73'
-                            }
-                        }
+                        y: { beginAtZero: true, stacked: true, grid: { color: '#e5e5e5' }, ticks: { color: '#6e6e73' } },
+                        x: { stacked: true, grid: { display: false }, ticks: { color: '#6e6e73' } }
                     }
                 }
             });
+
+            m2mChart = new Chart(document.getElementById('m2mChart').getContext('2d'), {
+                type: currentPeriod === 'monthly' ? 'bar' : 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'M2M Token Grants',
+                        data: data.map(d => d.m2mTokens),
+                        borderColor: '#6f42c1',
+                        backgroundColor: currentPeriod === 'monthly' ? '#6f42c1' : 'rgba(111, 66, 193, 0.1)',
+                        fill: currentPeriod !== 'monthly',
+                        tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, borderRadius: 6
+                    }]
+                },
+                options: baseChartOptions
+            });
+        }
+
+        function displayMetrics(metrics, logsProcessed, timestamp) {
+            currentDailyData = metrics.dailyData;
+
+            document.getElementById('uniqueUsers').textContent = metrics.totalUniqueUsers.toLocaleString();
+            document.getElementById('successfulLogins').textContent = metrics.totalSuccessfulLogins.toLocaleString();
+            document.getElementById('failedPasswords').textContent = metrics.totalFailedPasswords.toLocaleString();
+            document.getElementById('failedMFA').textContent = metrics.totalFailedMFA.toLocaleString();
+            document.getElementById('loginAbandonments').textContent = metrics.totalLoginAbandonments.toLocaleString();
+            document.getElementById('mfaAbandonments').textContent = metrics.totalMfaAbandonments.toLocaleString();
+            document.getElementById('inactiveUsers').textContent = metrics.inactiveUsers.toLocaleString();
+            document.getElementById('avgAuthTime').textContent = metrics.overallAvgAuthTime.toFixed(2);
+
+            document.getElementById('fastPassEnrollments').textContent = metrics.totalFastPassEnrollments.toLocaleString();
+            document.getElementById('fastPassAuthUsers').textContent = metrics.totalFastPassAuthUsers.toLocaleString();
+            document.getElementById('fastPassDevices').textContent = metrics.totalFastPassDevices.toLocaleString();
+            document.getElementById('fastPassAuths').textContent = metrics.totalFastPassAuths.toLocaleString();
+
+            document.getElementById('biometricUsers').textContent = metrics.totalBiometricUsers.toLocaleString();
+            const biometricRate = metrics.totalFastPassAuthUsers > 0
+                ? ((metrics.totalBiometricUsers / metrics.totalFastPassAuthUsers) * 100).toFixed(1)
+                : '0.0';
+            document.getElementById('biometricRate').textContent = biometricRate;
+
+            document.getElementById('emailSuccess').textContent = metrics.totalEmailSuccess.toLocaleString();
+            document.getElementById('emailFailure').textContent = metrics.totalEmailFailure.toLocaleString();
+            document.getElementById('emailDropped').textContent = metrics.totalEmailDropped.toLocaleString();
+            document.getElementById('emailBounced').textContent = metrics.totalEmailBounced.toLocaleString();
+            document.getElementById('emailSpam').textContent = metrics.totalEmailSpam.toLocaleString();
+            document.getElementById('emailUnsubscribed').textContent = metrics.totalEmailUnsubscribed.toLocaleString();
+            const totalEmails = metrics.totalEmailSuccess + metrics.totalEmailFailure;
+            const emailSuccessRate = totalEmails > 0
+                ? ((metrics.totalEmailSuccess / totalEmails) * 100).toFixed(1)
+                : '0.0';
+            document.getElementById('emailSuccessRate').textContent = emailSuccessRate;
+
+            document.getElementById('totalM2mTokens').textContent = (metrics.totalM2mTokens || 0).toLocaleString();
+
+            document.getElementById('lastUpdated').textContent = new Date(timestamp).toLocaleString();
+            document.getElementById('logsProcessed').textContent = logsProcessed.toLocaleString();
+
+            renderCharts(metrics.dailyData);
         }
     </script>
 </body>

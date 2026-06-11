@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Private keys — never commit
+keys/
+
 # Environment variables
 .env
 
