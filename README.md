@@ -11,6 +11,7 @@ A Node.js/Express web application that reads 31 days of Okta System Logs and dis
 - **FastPass metrics** — enrollments, users, devices, authentications
 - **Biometric usage** — adoption rates
 - **Email delivery** — success, failure, bounced, spam, dropped, unsubscribed
+- **M2M tokens** — client credentials token grants per day (tracks service-to-service OAuth activity)
 - **Per-app scoping** — optional dropdown to scope all metrics to a specific application
 - **Single fetch, all scopes** — refreshing "All Apps" calculates metrics for every configured app in one Okta API pass
 - **Foldable sections** — each metric category is collapsible; Expand All / Fold All controls
