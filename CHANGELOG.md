@@ -35,3 +35,12 @@
 
 ### Added
 - Tracks MFA/password step abandonments (user started but did not complete authentication).
+
+---
+
+## ea304e2 — Add M2M token grants metric
+
+### Added
+- Tracks `app.oauth2.token.grant.access_token` events with `client_credentials` grant type.
+- Daily M2M token count displayed in dashboard, covering service-to-service OAuth activity.
+- Per-app scoping supported: M2M grants are matched against the requesting app actor rather than the target (since the requesting app is the actor in client credentials flows).
